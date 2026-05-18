@@ -185,7 +185,7 @@ function SetupScreen({config,setConfig,availableCount,startQuiz,historyCount,onS
       </div>
       <div className="text-center mb-8">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-5" style={{background:'rgba(255,153,0,0.12)',border:'1px solid rgba(255,153,0,0.3)'}}>
-          <Sparkles size={14} style={{color:'#FF9900'}}/><span className="text-xs font-medium tracking-wider" style={{color:'#FFB84D'}}>CLF-C02 対応 · 180問</span>
+          <Sparkles size={14} style={{color:'#FF9900'}}/><span className="text-xs font-medium tracking-wider" style={{color:'#FFB84D'}}>CLF-C02 対応 · {QUESTIONS.length}問</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight">AWS Cloud Practitioner<br/><span style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>練習問題集</span></h1>
         <p className="text-slate-400 mt-3 text-sm">難易度・領域・問題数を選んで始めよう</p>
@@ -321,6 +321,10 @@ function HistoryScreen({history,onBack,onClear}) {
     const m={};history.forEach(h=>{Object.entries(h.byDomain).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0,ss:[]};m[d].c+=s.correct;m[d].t+=s.total;m[d].ss.push(Math.round((s.correct/s.total)*100));});});
     return Object.entries(m).map(([d,s])=>({key:d,...DOMAINS[d],accuracy:Math.round((s.c/s.t)*100),growth:s.ss[s.ss.length-1]-s.ss[0],total:s.t})).sort((a,b)=>b.total-a.total);
   },[history]);
+  const diffStats=useMemo(()=>{
+    const m={};history.forEach(h=>{if(!h.byDifficulty)return;Object.entries(h.byDifficulty).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0};m[d].c+=s.correct;m[d].t+=s.total;});});
+    return['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],accuracy:Math.round((m[k].c/m[k].t)*100),correct:m[k].c,total:m[k].t}));
+  },[history]);
   const firstAcc=history[0].accuracy,latestAcc=history[history.length-1].accuracy,growth=latestAcc-firstAcc;
   const recent=[...history].reverse().slice(0,10);
   return(
@@ -366,6 +370,11 @@ function HistoryScreen({history,onBack,onClear}) {
         <div className="flex items-center gap-2 mb-4"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域別の累計成績</h2></div>
         <div className="space-y-3">{domainStats.map(d=>{const Icon=d.icon;return(<div key={d.key}><div className="flex items-center justify-between mb-1.5"><div className="flex items-center gap-2 min-w-0"><Icon size={14} style={{color:d.color}}/><span className="text-sm font-medium text-white truncate">{d.short}</span>{d.growth!==0&&<span className="mono text-[10px] font-bold flex-shrink-0" style={{color:d.growth>0?'#34d399':'#f87171'}}>{d.growth>0?'↑':'↓'}{Math.abs(d.growth)}</span>}</div><div className="mono text-xs flex items-center gap-2 flex-shrink-0"><span className="text-slate-500">{d.total}問</span><span className="font-bold text-sm" style={{color:d.color}}>{d.accuracy}%</span></div></div><div className="h-2 bg-white/5 rounded-full overflow-hidden"><div className="h-full" style={{width:`${d.accuracy}%`,background:d.color}}/></div></div>);})}</div>
       </div>
+      {diffStats.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+        <div className="flex items-center gap-2 mb-4"><Target size={16} style={{color:'#FF9900'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">難易度別の累計正答率</h2></div>
+        <div className="grid grid-cols-3 gap-2">{diffStats.map(d=>{const ac=d.accuracy>=80?'#34d399':d.accuracy>=60?'#FF9900':'#ef4444';return(<div key={d.key} className="rounded-xl p-3 text-center" style={{background:'rgba(255,255,255,0.03)',border:`1px solid ${ac}30`}}><div className="text-xs text-slate-400 mb-1">{d.label}</div><div className="text-xs mb-1.5" style={{color:'#FF9900'}}>{d.stars}</div><div className="mono font-bold text-xl" style={{color:ac}}>{d.accuracy}<span className="text-xs text-slate-400">%</span></div><div className="mono text-[10px] text-slate-500 mt-0.5">{d.correct}/{d.total}問</div></div>);})}</div>
+        <p className="text-[10px] text-slate-500 mt-3 text-center">80%以上: 得意 · 60%以上: 要継続 · 60%未満: 要重点学習</p>
+      </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">最近の受験</h2></div>
         <div className="space-y-2">{recent.map(h=>{
