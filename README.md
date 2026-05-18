@@ -118,6 +118,3 @@ aws-clf-quiz_ver.3/
 └── package.json
 ```
 
-## ライセンス
-
-MIT
