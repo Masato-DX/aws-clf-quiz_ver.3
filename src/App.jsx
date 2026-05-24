@@ -379,6 +379,10 @@ function HistoryScreen({history,onBack,onClear}) {
     const m={};history.forEach(h=>{Object.entries(h.byDomain).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0,ss:[]};m[d].c+=s.correct;m[d].t+=s.total;m[d].ss.push(Math.round((s.correct/s.total)*100));});});
     return Object.entries(m).map(([d,s])=>({key:d,...DOMAINS[d],accuracy:Math.round((s.c/s.t)*100),growth:s.ss[s.ss.length-1]-s.ss[0],total:s.t})).sort((a,b)=>b.total-a.total);
   },[history]);
+  const diffStats=useMemo(()=>{
+    const m={};history.forEach(h=>{if(!h.byDifficulty)return;Object.entries(h.byDifficulty).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0};m[d].c+=s.correct;m[d].t+=s.total;});});
+    return ['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],accuracy:Math.round((m[k].c/m[k].t)*100),correct:m[k].c,total:m[k].t}));
+  },[history]);
   const firstAcc=history[0].accuracy,latestAcc=history[history.length-1].accuracy,growth=latestAcc-firstAcc;
   const recent=[...history].reverse().slice(0,10);
   return(
@@ -424,6 +428,10 @@ function HistoryScreen({history,onBack,onClear}) {
         <div className="flex items-center gap-2 mb-4"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域別の累計成績</h2></div>
         <div className="space-y-3">{domainStats.map(d=>{const Icon=d.icon;return(<div key={d.key}><div className="flex items-center justify-between mb-1.5"><div className="flex items-center gap-2 min-w-0"><Icon size={14} style={{color:d.color}}/><span className="text-sm font-medium text-white truncate">{d.short}</span>{d.growth!==0&&<span className="mono text-[10px] font-bold flex-shrink-0" style={{color:d.growth>0?'#34d399':'#f87171'}}>{d.growth>0?'↑':'↓'}{Math.abs(d.growth)}</span>}</div><div className="mono text-xs flex items-center gap-2 flex-shrink-0"><span className="text-slate-500">{d.total}問</span><span className="font-bold text-sm" style={{color:d.color}}>{d.accuracy}%</span></div></div><div className="h-2 bg-white/5 rounded-full overflow-hidden"><div className="h-full" style={{width:`${d.accuracy}%`,background:d.color}}/></div></div>);})}</div>
       </div>
+      {diffStats.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+        <div className="flex items-center gap-2 mb-4"><Target size={16} style={{color:'#FF9900'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">難易度別の累計成績</h2></div>
+        <div className="grid grid-cols-3 gap-2">{diffStats.map(d=>(<div key={d.key} className="rounded-xl p-3 text-center" style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)'}}><div className="text-xs text-slate-400 mb-1">{d.label}</div><div className="text-xs mb-1.5" style={{color:'#FF9900'}}>{d.stars}</div><div className="mono font-bold text-2xl text-white">{d.accuracy}<span className="text-sm text-slate-400">%</span></div><div className="mono text-[10px] text-slate-500 mt-0.5">{d.correct}/{d.total}問</div></div>))}</div>
+      </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">最近の受験</h2></div>
         <div className="space-y-2">{recent.map(h=>{
