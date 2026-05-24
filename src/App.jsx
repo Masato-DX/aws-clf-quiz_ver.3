@@ -31,6 +31,7 @@ export default function App() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [results, setResults] = useState([]);
   const [history, setHistory] = useState([]);
+  const [seenIds, setSeenIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_seen_questions') || '[]')));
   const [syncConfig, setSyncConfig] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -64,6 +65,10 @@ export default function App() {
     QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty)).length
   , [config.domain, config.difficulty]);
 
+  const unseenCount = useMemo(() =>
+    QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty)&&!seenIds.has(q.id)).length
+  , [config.domain, config.difficulty, seenIds]);
+
   // --- 追加: 初期設定画面からの保存処理 ---
   const handleAuthSave = async (pat, gistId) => {
     setIsSyncing(true);
@@ -86,7 +91,12 @@ export default function App() {
 
   const startQuiz = () => {
     const filtered = QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty));
-    const picked = shuffle(filtered).slice(0, Math.min(config.count, filtered.length));
+    const unseen = filtered.filter(q => !seenIds.has(q.id));
+    const seen   = filtered.filter(q =>  seenIds.has(q.id));
+    const need   = Math.min(config.count, filtered.length);
+    const fromUnseen = shuffle(unseen).slice(0, need);
+    const fromSeen   = shuffle(seen).slice(0, need - fromUnseen.length);
+    const picked = [...fromUnseen, ...fromSeen];
     const shuffled = picked.map(q => {
       const correctTexts = q.correctAnswers.map(i => q.options[i]);
       const newOpts = shuffle([...q.options]);
@@ -141,11 +151,16 @@ export default function App() {
     });
     const session = { id: Date.now(), date: new Date().toISOString(), config:{...config}, total, correct, accuracy: total>0?Math.round((correct/total)*100):0, byDomain, byDifficulty: byDiff, byDomainDiff };
     
-    const nh = [...history, session]; 
+    const nh = [...history, session];
     setHistory(nh);
-    
+
     // 1. ローカルに保存
     localStorage.setItem('aws_clf_history', JSON.stringify(nh));
+
+    // 2. 解いた問題IDを記録（未出題優先のため）
+    const newSeenIds = new Set([...seenIds, ...results.map(r => r.questionId)]);
+    setSeenIds(newSeenIds);
+    localStorage.setItem('aws_clf_seen_questions', JSON.stringify([...newSeenIds]));
 
     // 2. Gistへ非同期保存
     if (syncConfig) {
@@ -159,8 +174,10 @@ export default function App() {
 
   // --- 修正: 履歴のクリア処理 (localStorage + Gist) ---
   const clearHistory = async () => {
-    setHistory([]); 
+    setHistory([]);
+    setSeenIds(new Set());
     localStorage.removeItem('aws_clf_history');
+    localStorage.removeItem('aws_clf_seen_questions');
     if (syncConfig) {
       try {
         await saveHistoryToGist(syncConfig.pat, syncConfig.gistId, []);
@@ -188,7 +205,7 @@ export default function App() {
             error={authError} 
           />
         )}
-        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} />}
+        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} />}
         {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
         {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
@@ -197,7 +214,7 @@ export default function App() {
   );
 }
 
-function SetupScreen({config,setConfig,availableCount,startQuiz,historyCount,onShowHistory}) {
+function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,historyCount,onShowHistory}) {
   return (
     <div className="fade-up">
       <div className="flex justify-end mb-3">
@@ -233,7 +250,13 @@ function SetupScreen({config,setConfig,availableCount,startQuiz,historyCount,onS
             <div className="text-center"><div className="mono font-bold text-lg">{n}</div><div className="text-xs text-slate-400">問</div></div>
           </button>
         ))}</div>
-        <div className="mt-3 text-xs text-slate-500 text-center">利用可能: <span className="mono" style={{color:'#FFB84D'}}>{availableCount}</span> 問 / 出題: <span className="mono" style={{color:'#FFB84D'}}>{Math.min(config.count,availableCount)}</span> 問</div>
+        <div className="mt-3 text-xs text-slate-500 text-center">
+          利用可能: <span className="mono" style={{color:'#FFB84D'}}>{availableCount}</span> 問 / 出題: <span className="mono" style={{color:'#FFB84D'}}>{Math.min(config.count,availableCount)}</span> 問
+          {unseenCount > 0
+            ? <span className="ml-2" style={{color:'#34d399'}}>（未出題 <span className="mono font-bold">{unseenCount}</span> 問を優先）</span>
+            : <span className="ml-2" style={{color:'#f59e0b'}}>（全問出題済み・ランダム選択）</span>
+          }
+        </div>
       </div>
       <button onClick={startQuiz} disabled={availableCount===0} className="w-full mt-2 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:availableCount===0?'rgba(255,255,255,0.05)':'linear-gradient(90deg,#FF9900,#FFB84D)',color:availableCount===0?'#64748b':'#0a0e1a',boxShadow:availableCount===0?'none':'0 8px 24px rgba(255,153,0,0.3)'}}>スタート <ChevronRight size={18} strokeWidth={3}/></button>
     </div>
