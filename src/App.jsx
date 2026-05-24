@@ -389,8 +389,11 @@ function HistoryScreen({history,onBack,onClear}) {
     return m;
   },[history]);
   const dailyStats=useMemo(()=>{
-    const m={};history.forEach(h=>{const d=new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});if(!m[d])m[d]={date:d,total:0,correct:0};m[d].total+=h.total;m[d].correct+=h.correct;});
-    return Object.values(m).slice(-14);
+    const m={};
+    history.forEach(h=>{const d=new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});if(!m[d])m[d]={date:d,total:0,correct:0};m[d].total+=h.total;m[d].correct+=h.correct;});
+    const days=[];const today=new Date();
+    for(let i=13;i>=0;i--){const t=new Date(today);t.setDate(t.getDate()-i);const key=t.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});days.push(m[key]||{date:key,total:0,correct:0});}
+    return days;
   },[history]);
   const goalRate=useMemo(()=>history.length>0?Math.round(history.filter(h=>h.accuracy>=70).length/history.length*100):0,[history]);
   const timeSlotStats=useMemo(()=>{
@@ -400,10 +403,17 @@ function HistoryScreen({history,onBack,onClear}) {
   },[history]);
   const weakTrend=useMemo(()=>{
     if(history.length<2)return[];
-    const first={},last={};
-    history.slice(0,Math.ceil(history.length/2)).forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!first[d])first[d]={c:0,t:0};first[d].c+=s.correct;first[d].t+=s.total;}));
-    history.slice(-Math.ceil(history.length/2)).forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!last[d])last[d]={c:0,t:0};last[d].c+=s.correct;last[d].t+=s.total;}));
-    return Object.keys(DOMAINS).filter(k=>k!=='all'&&first[k]&&last[k]).map(k=>({key:k,...DOMAINS[k],before:Math.round(first[k].c/first[k].t*100),after:Math.round(last[k].c/last[k].t*100),diff:Math.round(last[k].c/last[k].t*100)-Math.round(first[k].c/first[k].t*100)}));
+    // 最初の1回 vs 直近5回を比較
+    const firstH=[history[0]];
+    const recentH=history.slice(-Math.min(5,history.length));
+    const calc=(hs)=>{const m={};hs.forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0};m[d].c+=s.correct;m[d].t+=s.total;}));return m;};
+    const first=calc(firstH);const last=calc(recentH);
+    return Object.keys(DOMAINS).filter(k=>k!=='all'&&first[k]&&last[k]).map(k=>({
+      key:k,...DOMAINS[k],
+      before:Math.round(first[k].c/first[k].t*100),
+      after:Math.round(last[k].c/last[k].t*100),
+      diff:Math.round(last[k].c/last[k].t*100)-Math.round(first[k].c/first[k].t*100)
+    }));
   },[history]);
   const firstAcc=history[0].accuracy,latestAcc=history[history.length-1].accuracy,growth=latestAcc-firstAcc;
   const recent=[...history].reverse().slice(0,10);
@@ -481,9 +491,33 @@ function HistoryScreen({history,onBack,onClear}) {
         </div>}
       </div>
       {weakTrend.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
-        <div className="flex items-center gap-2 mb-4"><TrendingUp size={16} style={{color:'#f87171'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">弱点の改善推移</h2></div>
-        <div className="space-y-2">{weakTrend.map(d=>{const Icon=d.icon;return(<div key={d.key} className="flex items-center gap-3"><Icon size={13} style={{color:d.color}} className="flex-shrink-0"/><span className="text-xs text-slate-300 w-20 flex-shrink-0">{d.short}</span><div className="flex-1 flex items-center gap-2"><span className="mono text-[11px] text-slate-500 w-8 text-right">{d.before}%</span><div className="flex-1 h-1 bg-white/5 rounded-full relative"><div className="absolute h-full rounded-full" style={{left:`${Math.min(d.before,d.after)}%`,width:`${Math.abs(d.diff)}%`,background:d.diff>0?'#34d399':'#f87171'}}/></div><span className="mono text-[11px] font-bold w-8" style={{color:d.diff>0?'#34d399':d.diff<0?'#f87171':'#64748b'}}>{d.after}%</span><span className="mono text-[10px] font-bold w-8 flex-shrink-0" style={{color:d.diff>0?'#34d399':d.diff<0?'#f87171':'#64748b'}}>{d.diff>0?'+':''}{d.diff}</span></div></div>);})}</div>
-        <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-500 justify-end"><span>前半 → 後半の比較</span></div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2"><TrendingUp size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域別の成長</h2></div>
+        </div>
+        <p className="text-[11px] text-slate-500 mb-4">初回の記録 と 直近5回の平均 を比較しています</p>
+        <div className="space-y-3">{weakTrend.map(d=>{
+          const Icon=d.icon;
+          const label=d.diff>5?'📈 伸びている':d.diff<-5?'📉 要注意':d.diff===0?'➡️ 変化なし':'📊 ほぼ横ばい';
+          const diffCol=d.diff>5?'#34d399':d.diff<-5?'#f87171':'#94a3b8';
+          return(
+            <div key={d.key} className="rounded-xl p-3" style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)'}}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2"><Icon size={13} style={{color:d.color}}/><span className="text-xs font-medium text-white">{d.short}</span></div>
+                <span className="text-[11px]">{label}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-center"><div className="text-[10px] text-slate-500 mb-0.5">初回</div><div className="mono font-bold text-base text-slate-300">{d.before}%</div></div>
+                <div className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full h-2 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,0.06)'}}>
+                    <div className="h-full rounded-full transition-all" style={{width:`${d.after}%`,background:d.after>=85?'#10b981':d.after>=70?'#FF9900':'#ef4444'}}/>
+                  </div>
+                  <span className="mono text-[11px] font-bold" style={{color:diffCol}}>{d.diff>0?'▲':d.diff<0?'▼':'─'} {d.diff>0?'+':''}{d.diff}ポイント</span>
+                </div>
+                <div className="text-center"><div className="text-[10px] text-slate-500 mb-0.5">直近5回</div><div className="mono font-bold text-base" style={{color:d.after>=85?'#10b981':d.after>=70?'#FF9900':'#ef4444'}}>{d.after}%</div></div>
+              </div>
+            </div>
+          );
+        })}</div>
       </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">最近の受験</h2></div>
