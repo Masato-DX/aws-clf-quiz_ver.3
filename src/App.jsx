@@ -389,10 +389,17 @@ function HistoryScreen({history,onBack,onClear}) {
     return m;
   },[history]);
   const dailyStats=useMemo(()=>{
+    if(history.length===0)return[];
     const m={};
     history.forEach(h=>{const d=new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});if(!m[d])m[d]={date:d,total:0,correct:0};m[d].total+=h.total;m[d].correct+=h.correct;});
-    const days=[];const today=new Date();
-    for(let i=13;i>=0;i--){const t=new Date(today);t.setDate(t.getDate()-i);const key=t.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});days.push(m[key]||{date:key,total:0,correct:0});}
+    // 最初の記録日から今日まで全日付を生成
+    const start=new Date(history[0].date);start.setHours(0,0,0,0);
+    const today=new Date();today.setHours(0,0,0,0);
+    const days=[];
+    for(let t=new Date(start);t<=today;t.setDate(t.getDate()+1)){
+      const key=t.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});
+      days.push(m[key]||{date:key,total:0,correct:0});
+    }
     return days;
   },[history]);
   const goalRate=useMemo(()=>history.length>0?Math.round(history.filter(h=>h.accuracy>=70).length/history.length*100):0,[history]);
@@ -466,17 +473,26 @@ function HistoryScreen({history,onBack,onClear}) {
       </div>}
       {Object.keys(heatmap).length>0&&<HeatmapTable heatmap={heatmap}/>}
       {dailyStats.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
-        <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#34d399'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">日別 解答問題数</h2></div>
-        <div style={{width:'100%',height:140}}>
-          <ResponsiveContainer><BarChart data={dailyStats} margin={{top:4,right:4,bottom:0,left:-28}}>
-            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false}/>
-            <XAxis dataKey="date" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-            <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-            <Tooltip contentStyle={{background:'#0a0e1a',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,fontSize:12}} labelStyle={{color:'#cbd5e1'}} formatter={(v)=>[`${v}問`,'解答数']}/>
-            <Bar dataKey="total" radius={[4,4,0,0]}>{dailyStats.map((d,i)=><Cell key={i} fill={d.total>=10?'#FF9900':'#475569'}/>)}</Bar>
-          </BarChart></ResponsiveContainer>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2"><Calendar size={16} style={{color:'#34d399'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">日別 解答問題数</h2></div>
+          <span className="mono text-[11px] text-slate-500">{dailyStats.length}日間</span>
         </div>
-        <div className="mt-1 text-[10px] text-slate-500 text-center">直近 {dailyStats.length} 日（10問以上：オレンジ）</div>
+        <div className="overflow-x-auto">
+          <div style={{width:Math.max(dailyStats.length*28,300),height:140}}>
+            <BarChart width={Math.max(dailyStats.length*28,300)} height={140} data={dailyStats} margin={{top:4,right:4,bottom:0,left:-28}}>
+              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false}/>
+              <XAxis dataKey="date" tick={{fill:'#64748b',fontSize:9}} axisLine={false} tickLine={false} interval={dailyStats.length>30?Math.floor(dailyStats.length/15):0}/>
+              <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
+              <Tooltip contentStyle={{background:'#0a0e1a',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,fontSize:12}} labelStyle={{color:'#cbd5e1'}} formatter={(v)=>[`${v}問`,'解答数']}/>
+              <Bar dataKey="total" radius={[3,3,0,0]} maxBarSize={20}>{dailyStats.map((d,i)=><Cell key={i} fill={d.total===0?'rgba(255,255,255,0.06)':d.total>=10?'#FF9900':'#60a5fa'}/>)}</Bar>
+            </BarChart>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 mt-2 justify-center">
+          <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'#FF9900'}}></div><span className="text-[10px] text-slate-500">10問以上</span></div>
+          <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'#60a5fa'}}></div><span className="text-[10px] text-slate-500">1〜9問</span></div>
+          <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'rgba(255,255,255,0.06)'}}></div><span className="text-[10px] text-slate-500">0問</span></div>
+        </div>
       </div>}
       <div className="grid grid-cols-2 gap-2.5 mb-4">
         <div className="rounded-2xl p-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
