@@ -415,11 +415,11 @@ function HistoryScreen({history,onBack,onClear}) {
     const recentH=history.slice(-Math.min(5,history.length));
     const calc=(hs)=>{const m={};hs.forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0};m[d].c+=s.correct;m[d].t+=s.total;}));return m;};
     const first=calc(firstH);const last=calc(recentH);
-    return Object.keys(DOMAINS).filter(k=>k!=='all'&&first[k]&&last[k]).map(k=>({
+    return Object.keys(DOMAINS).filter(k=>k!=='all'&&last[k]).map(k=>({
       key:k,...DOMAINS[k],
-      before:Math.round(first[k].c/first[k].t*100),
+      before:first[k]?Math.round(first[k].c/first[k].t*100):null,
       after:Math.round(last[k].c/last[k].t*100),
-      diff:Math.round(last[k].c/last[k].t*100)-Math.round(first[k].c/first[k].t*100)
+      diff:first[k]?Math.round(last[k].c/last[k].t*100)-Math.round(first[k].c/first[k].t*100):null
     }));
   },[history]);
   const firstAcc=history[0].accuracy,latestAcc=history[history.length-1].accuracy,growth=latestAcc-firstAcc;
@@ -513,8 +513,8 @@ function HistoryScreen({history,onBack,onClear}) {
         <p className="text-[11px] text-slate-500 mb-4">初回の記録 と 直近5回の平均 を比較しています</p>
         <div className="space-y-3">{weakTrend.map(d=>{
           const Icon=d.icon;
-          const label=d.diff>5?'📈 伸びている':d.diff<-5?'📉 要注意':d.diff===0?'➡️ 変化なし':'📊 ほぼ横ばい';
-          const diffCol=d.diff>5?'#34d399':d.diff<-5?'#f87171':'#94a3b8';
+          const label=d.diff===null?'📊 初回データなし':d.diff>5?'📈 伸びている':d.diff<-5?'📉 要注意':d.diff===0?'➡️ 変化なし':'📊 ほぼ横ばい';
+          const diffCol=d.diff===null?'#94a3b8':d.diff>5?'#34d399':d.diff<-5?'#f87171':'#94a3b8';
           return(
             <div key={d.key} className="rounded-xl p-3" style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)'}}>
               <div className="flex items-center justify-between mb-2">
@@ -522,12 +522,12 @@ function HistoryScreen({history,onBack,onClear}) {
                 <span className="text-[11px]">{label}</span>
               </div>
               <div className="flex items-center gap-3">
-                <div className="text-center"><div className="text-[10px] text-slate-500 mb-0.5">初回</div><div className="mono font-bold text-base text-slate-300">{d.before}%</div></div>
+                <div className="text-center"><div className="text-[10px] text-slate-500 mb-0.5">初回</div><div className="mono font-bold text-base text-slate-300">{d.before!==null?`${d.before}%`:'-'}</div></div>
                 <div className="flex-1 flex flex-col items-center gap-1">
                   <div className="w-full h-2 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,0.06)'}}>
                     <div className="h-full rounded-full transition-all" style={{width:`${d.after}%`,background:d.after>=85?'#10b981':d.after>=70?'#FF9900':'#ef4444'}}/>
                   </div>
-                  <span className="mono text-[11px] font-bold" style={{color:diffCol}}>{d.diff>0?'▲':d.diff<0?'▼':'─'} {d.diff>0?'+':''}{d.diff}ポイント</span>
+                  {d.diff!==null?<span className="mono text-[11px] font-bold" style={{color:diffCol}}>{d.diff>0?'▲':d.diff<0?'▼':'─'} {d.diff>0?'+':''}{d.diff}ポイント</span>:<span className="text-[10px] text-slate-600">比較データなし</span>}
                 </div>
                 <div className="text-center"><div className="text-[10px] text-slate-500 mb-0.5">直近5回</div><div className="mono font-bold text-base" style={{color:d.after>=85?'#10b981':d.after>=70?'#FF9900':'#ef4444'}}>{d.after}%</div></div>
               </div>
