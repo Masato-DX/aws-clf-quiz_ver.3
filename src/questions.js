@@ -1,6 +1,9 @@
 // src/questions.js
 
-export const Q = (id, domain, diff, q, opts, ans, exp) => ({ id, domain, difficulty: diff, question: q, options: opts, correctAnswer: ans, explanation: exp });
+export const Q = (id, domain, diff, q, opts, ans, exp) => {
+  const correctAnswers = (Array.isArray(ans) ? ans : [ans]).slice().sort((a,b)=>a-b);
+  return { id, domain, difficulty: diff, question: q, options: opts, correctAnswers, multiSelect: correctAnswers.length > 1, explanation: exp };
+};
 
 export const QUESTIONS = [
 // ===== Domain 1: クラウドの概念 =====

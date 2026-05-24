@@ -27,7 +27,7 @@ export default function App() {
   const [config, setConfig] = useState({ difficulty: 'all', domain: 'all', count: 10 });
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [selectedAnswers, setSelectedAnswers] = useState([]);
   const [showFeedback, setShowFeedback] = useState(false);
   const [results, setResults] = useState([]);
   const [history, setHistory] = useState([]);
@@ -88,23 +88,44 @@ export default function App() {
     const filtered = QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty));
     const picked = shuffle(filtered).slice(0, Math.min(config.count, filtered.length));
     const shuffled = picked.map(q => {
-      const correctText = q.options[q.correctAnswer];
+      const correctTexts = q.correctAnswers.map(i => q.options[i]);
       const newOpts = shuffle([...q.options]);
-      return { ...q, options: newOpts, correctAnswer: newOpts.indexOf(correctText) };
+      const newCorrectAnswers = correctTexts.map(t => newOpts.indexOf(t)).sort((a,b)=>a-b);
+      return { ...q, options: newOpts, correctAnswers: newCorrectAnswers };
     });
-    setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswer(null); setShowFeedback(false); setResults([]); setScreen('quiz');
+    setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
+  };
+
+  const arraysEqual = (a, b) => {
+    const sorted_a = [...a].sort((x,y)=>x-y);
+    const sorted_b = [...b].sort((x,y)=>x-y);
+    return sorted_a.length === sorted_b.length && sorted_a.every((v, i) => v === sorted_b[i]);
   };
 
   const handleSelect = (idx) => {
     if (showFeedback) return;
-    setSelectedAnswer(idx); setShowFeedback(true);
     const q = questions[currentIdx];
-    setResults(r => [...r, { questionId: q.id, selected: idx, correct: idx===q.correctAnswer, domain: q.domain, difficulty: q.difficulty }]);
+    if (q.multiSelect) {
+      setSelectedAnswers(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
+    } else {
+      setSelectedAnswers([idx]);
+      setShowFeedback(true);
+      const isCorrect = arraysEqual([idx], q.correctAnswers);
+      setResults(r => [...r, { questionId: q.id, selectedAnswers: [idx], correct: isCorrect, domain: q.domain, difficulty: q.difficulty }]);
+    }
+  };
+
+  const handleConfirm = () => {
+    const q = questions[currentIdx];
+    if (!q.multiSelect) return;
+    const isCorrect = arraysEqual(selectedAnswers, q.correctAnswers);
+    setShowFeedback(true);
+    setResults(r => [...r, { questionId: q.id, selectedAnswers: [...selectedAnswers], correct: isCorrect, domain: q.domain, difficulty: q.difficulty }]);
   };
 
   const handleNext = () => {
     if (currentIdx+1>=questions.length) { saveSession(); setScreen('result'); }
-    else { setCurrentIdx(currentIdx+1); setSelectedAnswer(null); setShowFeedback(false); }
+    else { setCurrentIdx(currentIdx+1); setSelectedAnswers([]); setShowFeedback(false); }
   };
 
   const restart = () => { setScreen('setup'); setResults([]); setQuestions([]); };
@@ -167,7 +188,7 @@ export default function App() {
           />
         )}
         {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} />}
-        {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswer={selectedAnswer} showFeedback={showFeedback} onSelect={handleSelect} onNext={handleNext} />}
+        {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
         {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
       </div>
@@ -218,39 +239,59 @@ function SetupScreen({config,setConfig,availableCount,startQuiz,historyCount,onS
   );
 }
 
-function QuizScreen({question,index,total,selectedAnswer,showFeedback,onSelect,onNext}) {
+function QuizScreen({question,index,total,selectedAnswers,showFeedback,onSelect,onConfirm,onNext}) {
   const domain=DOMAINS[question.domain];const diff=DIFFICULTIES[question.difficulty];const DomainIcon=domain.icon;
-  const progress=((index+1)/total)*100;const isCorrect=selectedAnswer===question.correctAnswer;
+  const progress=((index+1)/total)*100;
+  const arraysEqual = (a, b) => {
+    const sorted_a = [...a].sort((x,y)=>x-y);
+    const sorted_b = [...b].sort((x,y)=>x-y);
+    return sorted_a.length === sorted_b.length && sorted_a.every((v, i) => v === sorted_b[i]);
+  };
+  const isCorrect = arraysEqual(selectedAnswers, question.correctAnswers);
   return (
     <div key={question.id} className="scale-in">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{background:domain.bg,border:`1px solid ${domain.color}40`}}>
           <DomainIcon size={14} style={{color:domain.color}}/><span className="text-xs font-medium" style={{color:domain.color}}>{domain.short}</span><span className="text-xs" style={{color:domain.color,opacity:.6}}>·</span><span className="text-xs font-bold" style={{color:'#FF9900'}}>{diff.stars}</span>
+          {question.multiSelect&&<span className="text-xs ml-2 px-2 py-0.5 rounded-full" style={{background:`${domain.color}20`,color:domain.color}}>複数選択</span>}
         </div>
         <div className="mono text-sm font-bold text-white"><span style={{color:'#FF9900'}}>{index+1}</span><span className="text-slate-500"> / {total}</span></div>
       </div>
       <div className="h-1 bg-white/5 rounded-full overflow-hidden mb-6"><div className="h-full transition-all duration-500" style={{width:`${progress}%`,background:'linear-gradient(90deg,#FF9900,#FFB84D)'}}/></div>
       <div className="rounded-2xl p-5 sm:p-6 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}><p className="text-white text-base sm:text-lg font-medium leading-relaxed">{question.question}</p></div>
       <div className="space-y-2.5 mb-4">{question.options.map((opt,i)=>{
-        const isSel=selectedAnswer===i;const isCorr=i===question.correctAnswer;
+        const isSel=selectedAnswers.includes(i);const isCorr=question.correctAnswers.includes(i);
         let bg='rgba(255,255,255,0.03)',border='rgba(255,255,255,0.08)',lc='#FF9900';
         if(showFeedback){if(isCorr){bg='rgba(16,185,129,0.12)';border='#10b981';lc='#10b981';}else if(isSel){bg='rgba(239,68,68,0.12)';border='#ef4444';lc='#ef4444';}}else if(isSel){bg='rgba(255,153,0,0.1)';border='#FF9900';}
         return(
           <button key={i} onClick={()=>onSelect(i)} disabled={showFeedback} className="w-full text-left rounded-xl p-4 flex items-start gap-3" style={{background:bg,border:`1.5px solid ${border}`,cursor:showFeedback?'default':'pointer'}}>
-            <div className="flex items-center justify-center rounded-lg flex-shrink-0 mono font-bold text-sm" style={{width:28,height:28,background:`${lc}20`,color:lc}}>{String.fromCharCode(65+i)}</div>
+            {question.multiSelect?(
+              <input type="checkbox" checked={isSel} disabled={true} className="flex-shrink-0 mt-1" style={{width:18,height:18,accentColor:'#FF9900'}}/>
+            ):(
+              <div className="flex items-center justify-center rounded-lg flex-shrink-0 mono font-bold text-sm" style={{width:28,height:28,background:`${lc}20`,color:lc}}>{String.fromCharCode(65+i)}</div>
+            )}
             <span className="text-white text-sm sm:text-base leading-relaxed flex-1">{opt}</span>
             {showFeedback&&isCorr&&<Check size={20} style={{color:'#10b981'}} className="flex-shrink-0 mt-0.5"/>}
             {showFeedback&&isSel&&!isCorr&&<X size={20} style={{color:'#ef4444'}} className="flex-shrink-0 mt-0.5"/>}
           </button>
         );
       })}</div>
+      {!showFeedback&&question.multiSelect&&selectedAnswers.length>0&&(
+        <button onClick={onConfirm} className="w-full mb-4 py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}>確認する <ChevronRight size={18} strokeWidth={3}/></button>
+      )}
       {showFeedback&&(
         <div className="slide-in">
           <div className="rounded-2xl p-5 mb-4" style={{background:isCorrect?'rgba(16,185,129,0.08)':'rgba(239,68,68,0.08)',border:`1.5px solid ${isCorrect?'#10b981':'#ef4444'}40`}}>
             <div className="flex items-center gap-2 mb-3">
               {isCorrect?<Check size={20} style={{color:'#10b981'}}/>:<AlertCircle size={20} style={{color:'#ef4444'}}/>}
               <span className="font-bold text-sm" style={{color:isCorrect?'#10b981':'#ef4444'}}>{isCorrect?'正解！':'不正解'}</span>
-              {!isCorrect&&<span className="text-xs text-slate-400 ml-2">正解: <span className="mono font-bold" style={{color:'#10b981'}}>{String.fromCharCode(65+question.correctAnswer)}</span></span>}
+              {!isCorrect&&(
+                <span className="text-xs text-slate-400 ml-2">正解:
+                  {question.correctAnswers.map((idx,i)=>(
+                    <span key={i}>{i>0?'、':''}<span className="mono font-bold" style={{color:'#10b981'}}>{String.fromCharCode(65+idx)}</span></span>
+                  ))}
+                </span>
+              )}
             </div>
             <div className="flex gap-2.5"><Lightbulb size={16} style={{color:'#FFB84D'}} className="flex-shrink-0 mt-0.5"/><p className="text-slate-200 text-sm leading-relaxed">{question.explanation}</p></div>
           </div>
@@ -294,7 +335,24 @@ function ResultScreen({results,questions,onRestart}) {
         <summary className="flex items-center justify-between cursor-pointer list-none"><div className="flex items-center gap-2"><X size={16} style={{color:'#ef4444'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">間違えた問題 ({wrong.length})</h2></div><ChevronRight size={16} className="text-slate-500 transition-transform group-open:rotate-90"/></summary>
         <div className="mt-4 space-y-4">{wrong.map((r,i)=>(<div key={i} className="pt-3" style={{borderTop:'1px solid rgba(255,255,255,0.06)'}}>
           <p className="text-sm text-white font-medium mb-2 leading-relaxed">{r.q.question}</p>
-          <div className="text-xs space-y-1 mb-2"><div><span className="text-slate-500">あなたの回答: </span><span style={{color:'#ef4444'}}>{String.fromCharCode(65+r.selected)}. {r.q.options[r.selected]}</span></div><div><span className="text-slate-500">正解: </span><span style={{color:'#10b981'}}>{String.fromCharCode(65+r.q.correctAnswer)}. {r.q.options[r.q.correctAnswer]}</span></div></div>
+          <div className="text-xs space-y-1 mb-2">
+            <div>
+              <span className="text-slate-500">あなたの回答: </span>
+              <span style={{color:'#ef4444'}}>
+                {r.selectedAnswers.map((idx,j)=>(
+                  <span key={j}>{j>0?'、':''}{String.fromCharCode(65+idx)}. {r.q.options[idx]}</span>
+                ))}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">正解: </span>
+              <span style={{color:'#10b981'}}>
+                {r.q.correctAnswers.map((idx,j)=>(
+                  <span key={j}>{j>0?'、':''}{String.fromCharCode(65+idx)}. {r.q.options[idx]}</span>
+                ))}
+              </span>
+            </div>
+          </div>
           <div className="rounded-lg p-2.5 flex gap-2" style={{background:'rgba(255,184,77,0.08)'}}><Lightbulb size={14} style={{color:'#FFB84D'}} className="flex-shrink-0 mt-0.5"/><p className="text-xs text-slate-300 leading-relaxed">{r.q.explanation}</p></div>
         </div>))}</div>
       </details>}
