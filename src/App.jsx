@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Cloud, Shield, Server, DollarSign, ChevronRight, RotateCcw, Trophy, Check, X, BarChart3, Target, BookOpen, AlertCircle, TrendingUp, Award, Lightbulb, Sparkles, History, ArrowLeft, Trash2, Calendar, Activity, Flame, Settings, Save, Loader2 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Cell } from 'recharts';
 
 // 分離したデータとAPIをインポート
 import { QUESTIONS, DOMAINS, DIFFICULTIES, QUESTION_COUNTS } from './questions';
@@ -133,12 +133,13 @@ export default function App() {
   // --- 修正: 学習履歴の保存処理 (localStorage + Gist) ---
   const saveSession = async () => {
     const total = results.length; const correct = results.filter(r=>r.correct).length;
-    const byDomain={}; const byDiff={};
+    const byDomain={}; const byDiff={}; const byDomainDiff={};
     results.forEach(r => {
       if(!byDomain[r.domain]) byDomain[r.domain]={correct:0,total:0}; byDomain[r.domain].total++; if(r.correct) byDomain[r.domain].correct++;
       if(!byDiff[r.difficulty]) byDiff[r.difficulty]={correct:0,total:0}; byDiff[r.difficulty].total++; if(r.correct) byDiff[r.difficulty].correct++;
+      const k=`${r.domain}_${r.difficulty}`; if(!byDomainDiff[k]) byDomainDiff[k]={correct:0,total:0}; byDomainDiff[k].total++; if(r.correct) byDomainDiff[k].correct++;
     });
-    const session = { id: Date.now(), date: new Date().toISOString(), config:{...config}, total, correct, accuracy: total>0?Math.round((correct/total)*100):0, byDomain, byDifficulty: byDiff };
+    const session = { id: Date.now(), date: new Date().toISOString(), config:{...config}, total, correct, accuracy: total>0?Math.round((correct/total)*100):0, byDomain, byDifficulty: byDiff, byDomainDiff };
     
     const nh = [...history, session]; 
     setHistory(nh);
@@ -383,6 +384,27 @@ function HistoryScreen({history,onBack,onClear}) {
     const m={};history.forEach(h=>{if(!h.byDifficulty)return;Object.entries(h.byDifficulty).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0};m[d].c+=s.correct;m[d].t+=s.total;});});
     return ['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],accuracy:Math.round((m[k].c/m[k].t)*100),correct:m[k].c,total:m[k].t}));
   },[history]);
+  const heatmap=useMemo(()=>{
+    const m={};history.forEach(h=>{if(!h.byDomainDiff)return;Object.entries(h.byDomainDiff).forEach(([k,s])=>{if(!m[k])m[k]={c:0,t:0};m[k].c+=s.correct;m[k].t+=s.total;});});
+    return m;
+  },[history]);
+  const dailyStats=useMemo(()=>{
+    const m={};history.forEach(h=>{const d=new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'});if(!m[d])m[d]={date:d,total:0,correct:0};m[d].total+=h.total;m[d].correct+=h.correct;});
+    return Object.values(m).slice(-14);
+  },[history]);
+  const goalRate=useMemo(()=>history.length>0?Math.round(history.filter(h=>h.accuracy>=70).length/history.length*100):0,[history]);
+  const timeSlotStats=useMemo(()=>{
+    const slots={朝:{c:0,t:0},昼:{c:0,t:0},夕:{c:0,t:0},夜:{c:0,t:0}};
+    history.forEach(h=>{const hr=new Date(h.date).getHours();const s=hr<10?'朝':hr<14?'昼':hr<18?'夕':'夜';slots[s].c+=h.correct;slots[s].t+=h.total;});
+    return Object.entries(slots).filter(([,s])=>s.t>0).map(([label,s])=>({label,accuracy:Math.round(s.c/s.t*100),total:s.t}));
+  },[history]);
+  const weakTrend=useMemo(()=>{
+    if(history.length<2)return[];
+    const first={},last={};
+    history.slice(0,Math.ceil(history.length/2)).forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!first[d])first[d]={c:0,t:0};first[d].c+=s.correct;first[d].t+=s.total;}));
+    history.slice(-Math.ceil(history.length/2)).forEach(h=>Object.entries(h.byDomain).forEach(([d,s])=>{if(!last[d])last[d]={c:0,t:0};last[d].c+=s.correct;last[d].t+=s.total;}));
+    return Object.keys(DOMAINS).filter(k=>k!=='all'&&first[k]&&last[k]).map(k=>({key:k,...DOMAINS[k],before:Math.round(first[k].c/first[k].t*100),after:Math.round(last[k].c/last[k].t*100),diff:Math.round(last[k].c/last[k].t*100)-Math.round(first[k].c/first[k].t*100)}));
+  },[history]);
   const firstAcc=history[0].accuracy,latestAcc=history[history.length-1].accuracy,growth=latestAcc-firstAcc;
   const recent=[...history].reverse().slice(0,10);
   return(
@@ -432,6 +454,37 @@ function HistoryScreen({history,onBack,onClear}) {
         <div className="flex items-center gap-2 mb-4"><Target size={16} style={{color:'#FF9900'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">難易度別の累計成績</h2></div>
         <div className="grid grid-cols-3 gap-2">{diffStats.map(d=>(<div key={d.key} className="rounded-xl p-3 text-center" style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)'}}><div className="text-xs text-slate-400 mb-1">{d.label}</div><div className="text-xs mb-1.5" style={{color:'#FF9900'}}>{d.stars}</div><div className="mono font-bold text-2xl text-white">{d.accuracy}<span className="text-sm text-slate-400">%</span></div><div className="mono text-[10px] text-slate-500 mt-0.5">{d.correct}/{d.total}問</div></div>))}</div>
       </div>}
+      {Object.keys(heatmap).length>0&&<HeatmapTable heatmap={heatmap}/>}
+      {dailyStats.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+        <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#34d399'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">日別 解答問題数</h2></div>
+        <div style={{width:'100%',height:140}}>
+          <ResponsiveContainer><BarChart data={dailyStats} margin={{top:4,right:4,bottom:0,left:-28}}>
+            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false}/>
+            <XAxis dataKey="date" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
+            <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
+            <Tooltip contentStyle={{background:'#0a0e1a',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,fontSize:12}} labelStyle={{color:'#cbd5e1'}} formatter={(v)=>[`${v}問`,'解答数']}/>
+            <Bar dataKey="total" radius={[4,4,0,0]}>{dailyStats.map((d,i)=><Cell key={i} fill={d.total>=10?'#FF9900':'#475569'}/>)}</Bar>
+          </BarChart></ResponsiveContainer>
+        </div>
+        <div className="mt-1 text-[10px] text-slate-500 text-center">直近 {dailyStats.length} 日（10問以上：オレンジ）</div>
+      </div>}
+      <div className="grid grid-cols-2 gap-2.5 mb-4">
+        <div className="rounded-2xl p-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+          <div className="flex items-center gap-1.5 mb-2"><Trophy size={13} style={{color:'#34d399'}}/><span className="text-[11px] text-slate-400 font-medium">目標達成率</span></div>
+          <div className="flex items-baseline gap-1"><span className="mono font-black text-3xl text-white leading-none">{goalRate}</span><span className="text-xs text-slate-400">%</span></div>
+          <div className="text-[10px] text-slate-500 mt-1">70%以上のセッション割合</div>
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden mt-2"><div className="h-full rounded-full" style={{width:`${goalRate}%`,background:'linear-gradient(90deg,#34d399,#10b981)'}}/></div>
+        </div>
+        {timeSlotStats.length>0&&<div className="rounded-2xl p-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+          <div className="flex items-center gap-1.5 mb-2"><Activity size={13} style={{color:'#60a5fa'}}/><span className="text-[11px] text-slate-400 font-medium">時間帯別正答率</span></div>
+          <div className="space-y-1">{timeSlotStats.map(s=>(<div key={s.label} className="flex items-center gap-2"><span className="text-[11px] text-slate-400 w-4">{s.label}</span><div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${s.accuracy}%`,background:s.accuracy>=70?'#60a5fa':'#475569'}}/></div><span className="mono text-[10px] text-white font-bold w-8 text-right">{s.accuracy}%</span></div>))}</div>
+        </div>}
+      </div>
+      {weakTrend.length>0&&<div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+        <div className="flex items-center gap-2 mb-4"><TrendingUp size={16} style={{color:'#f87171'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">弱点の改善推移</h2></div>
+        <div className="space-y-2">{weakTrend.map(d=>{const Icon=d.icon;return(<div key={d.key} className="flex items-center gap-3"><Icon size={13} style={{color:d.color}} className="flex-shrink-0"/><span className="text-xs text-slate-300 w-20 flex-shrink-0">{d.short}</span><div className="flex-1 flex items-center gap-2"><span className="mono text-[11px] text-slate-500 w-8 text-right">{d.before}%</span><div className="flex-1 h-1 bg-white/5 rounded-full relative"><div className="absolute h-full rounded-full" style={{left:`${Math.min(d.before,d.after)}%`,width:`${Math.abs(d.diff)}%`,background:d.diff>0?'#34d399':'#f87171'}}/></div><span className="mono text-[11px] font-bold w-8" style={{color:d.diff>0?'#34d399':d.diff<0?'#f87171':'#64748b'}}>{d.after}%</span><span className="mono text-[10px] font-bold w-8 flex-shrink-0" style={{color:d.diff>0?'#34d399':d.diff<0?'#f87171':'#64748b'}}>{d.diff>0?'+':''}{d.diff}</span></div></div>);})}</div>
+        <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-500 justify-end"><span>前半 → 後半の比較</span></div>
+      </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><Calendar size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">最近の受験</h2></div>
         <div className="space-y-2">{recent.map(h=>{
@@ -445,6 +498,68 @@ function HistoryScreen({history,onBack,onClear}) {
         })}</div>
       </div>
       <button onClick={onBack} className="w-full mt-2 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}>新しいクイズを始める <ChevronRight size={18} strokeWidth={3}/></button>
+    </div>
+  );
+}
+
+function HeatmapTable({heatmap}) {
+  const domains = ['concepts','security','technology','billing'];
+  const diffs = ['beginner','intermediate','advanced'];
+  return (
+    <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
+      <div className="flex items-center gap-2 mb-4"><BarChart3 size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">難易度 × 領域 ヒートマップ</h2></div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr>
+            <td className="pb-2 pr-2 w-16"></td>
+            {diffs.map(d=>(
+              <th key={d} className="pb-2 text-center font-medium text-[10px] text-slate-400 px-1">
+                {DIFFICULTIES[d].label}<br/><span style={{color:'#FF9900'}}>{DIFFICULTIES[d].stars}</span>
+              </th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {domains.map(dom=>{
+              const Icon=DOMAINS[dom].icon;
+              return (
+                <tr key={dom}>
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <Icon size={11} style={{color:DOMAINS[dom].color}}/><span className="text-[10px] text-slate-400">{DOMAINS[dom].short}</span>
+                    </div>
+                  </td>
+                  {diffs.map(diff=>{
+                    const v=heatmap[`${dom}_${diff}`];
+                    if(!v) return (
+                      <td key={diff} className="py-1 px-1">
+                        <div className="rounded-lg p-2 text-center" style={{background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.04)'}}>
+                          <span className="text-slate-600 text-[10px]">-</span>
+                        </div>
+                      </td>
+                    );
+                    const acc=Math.round(v.c/v.t*100);
+                    const bg=acc>=85?'rgba(16,185,129,0.2)':acc>=70?'rgba(255,153,0,0.15)':'rgba(239,68,68,0.15)';
+                    const col=acc>=85?'#10b981':acc>=70?'#FF9900':'#ef4444';
+                    return (
+                      <td key={diff} className="py-1 px-1">
+                        <div className="rounded-lg p-2 text-center" style={{background:bg,border:`1px solid ${col}40`}}>
+                          <div className="mono font-bold text-sm" style={{color:col}}>{acc}%</div>
+                          <div className="text-[9px] text-slate-500 mt-0.5">{v.t}問</div>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center gap-3 mt-3 justify-end">
+        <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'rgba(16,185,129,0.3)'}}></div><span className="text-[10px] text-slate-500">85%+</span></div>
+        <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'rgba(255,153,0,0.2)'}}></div><span className="text-[10px] text-slate-500">70-84%</span></div>
+        <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm" style={{background:'rgba(239,68,68,0.2)'}}></div><span className="text-[10px] text-slate-500">70%未満</span></div>
+      </div>
     </div>
   );
 }
