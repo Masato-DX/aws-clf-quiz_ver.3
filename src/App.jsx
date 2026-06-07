@@ -398,7 +398,11 @@ function HistoryScreen({history,onBack,onClear}) {
     let streak=0;for(let i=history.length-1;i>=0;i--){if(history[i].accuracy>=70)streak++;else break;}
     return{totalQuizzes:tQ,totalQuestions:tq,totalCorrect:tc,overallAccuracy:tq>0?Math.round((tc/tq)*100):0,bestScore:Math.max(...history.map(h=>h.accuracy)),streak};
   },[history]);
-  const chartData=useMemo(()=>history.slice(-15).map((h,i)=>({idx:i+1,accuracy:h.accuracy,date:new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'})})),[history]);
+  const chartData=useMemo(()=>history.map((h,i)=>{
+    const w=history.slice(Math.max(0,i-2),i+1);
+    const avg3=Math.round(w.reduce((s,x)=>s+x.accuracy,0)/w.length);
+    return{idx:i+1,accuracy:h.accuracy,avg3,date:new Date(h.date).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'})};
+  }),[history]);
   const domainStats=useMemo(()=>{
     const m={};history.forEach(h=>{Object.entries(h.byDomain).forEach(([d,s])=>{if(!m[d])m[d]={c:0,t:0,ss:[]};m[d].c+=s.correct;m[d].t+=s.total;m[d].ss.push(Math.round((s.correct/s.total)*100));});});
     return Object.entries(m).map(([d,s])=>({key:d,...DOMAINS[d],accuracy:Math.round((s.c/s.t)*100),growth:s.ss[s.ss.length-1]-s.ss[0],total:s.t})).sort((a,b)=>b.total-a.total);
@@ -478,13 +482,17 @@ function HistoryScreen({history,onBack,onClear}) {
         <div style={{width:'100%',height:180}}>
           <ResponsiveContainer><LineChart data={chartData} margin={{top:10,right:10,bottom:0,left:-22}}>
             <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)"/>
-            <XAxis dataKey="idx" tick={{fill:'#64748b',fontSize:11}} axisLine={{stroke:'rgba(255,255,255,0.1)'}} tickLine={false}/>
+            <XAxis dataKey="idx" interval={chartData.length<=15?0:Math.ceil(chartData.length/8)-1} tick={{fill:'#64748b',fontSize:11}} axisLine={{stroke:'rgba(255,255,255,0.1)'}} tickLine={false}/>
             <YAxis domain={[0,100]} tick={{fill:'#64748b',fontSize:11}} axisLine={{stroke:'rgba(255,255,255,0.1)'}} tickLine={false}/>
-            <Tooltip contentStyle={{background:'#0a0e1a',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,fontSize:12}} labelStyle={{color:'#cbd5e1'}} formatter={(v)=>[`${v}%`,'正答率']} labelFormatter={(l)=>`${l}回目`}/>
-            <Line type="monotone" dataKey="accuracy" stroke="#FF9900" strokeWidth={2.5} dot={{fill:'#FF9900',r:3,strokeWidth:0}} activeDot={{fill:'#FFB84D',r:5,strokeWidth:2,stroke:'#0a0e1a'}}/>
+            <Tooltip contentStyle={{background:'#0a0e1a',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,fontSize:12}} labelStyle={{color:'#cbd5e1'}} formatter={(v,name)=>[`${v}%`,name==='avg3'?'3回平均':'正答率']} labelFormatter={(l)=>`${l}回目`}/>
+            <Line type="monotone" dataKey="accuracy" stroke="#FF9900" strokeWidth={chartData.length>20?1:2} dot={chartData.length<=30?{fill:'#FF9900',r:chartData.length>20?1.5:3,strokeWidth:0}:false} activeDot={{fill:'#FFB84D',r:5,strokeWidth:2,stroke:'#0a0e1a'}}/>
+            {chartData.length>=5&&<Line type="monotone" dataKey="avg3" stroke="#60a5fa" strokeWidth={2} dot={false} activeDot={{fill:'#93c5fd',r:4,strokeWidth:0}}/>}
           </LineChart></ResponsiveContainer>
         </div>
-        <div className="mt-2 text-[10px] text-slate-500 text-center">直近 {chartData.length} 回</div>
+        <div className="mt-2 text-[10px] text-slate-500 text-center flex items-center justify-center gap-3">
+          <span>全 {chartData.length} 回</span>
+          {chartData.length>=5&&<span className="flex items-center gap-1"><span style={{display:'inline-block',width:16,height:2,background:'#60a5fa',borderRadius:1}}/> 3回移動平均</span>}
+        </div>
       </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域別の累計成績</h2></div>
