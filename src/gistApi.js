@@ -2,8 +2,8 @@
 
 const GIST_FILENAME = 'aws_clf_history.json';
 
-// Gistから履歴データを取得する
-export async function fetchHistoryFromGist(pat, gistId) {
+// Gistからデータ（履歴 + 解いた問題ID）を取得する
+export async function fetchDataFromGist(pat, gistId) {
   try {
     const response = await fetch(`https://api.github.com/gists/${gistId}`, {
       headers: {
@@ -11,23 +11,26 @@ export async function fetchHistoryFromGist(pat, gistId) {
         'Accept': 'application/vnd.github.v3+json'
       }
     });
-    
+
     if (!response.ok) throw new Error('Gistの取得に失敗しました');
-    
+
     const gist = await response.json();
     const file = gist.files[GIST_FILENAME];
-    
-    if (!file || !file.content) return [];
-    
-    return JSON.parse(file.content);
+
+    if (!file || !file.content) return { history: [], seenIds: [] };
+
+    const parsed = JSON.parse(file.content);
+    // 旧フォーマット（配列のみ）の後方互換
+    if (Array.isArray(parsed)) return { history: parsed, seenIds: [] };
+    return { history: parsed.history || [], seenIds: parsed.seenIds || [] };
   } catch (error) {
     console.error("Gist fetch error:", error);
     throw error;
   }
 }
 
-// Gistへ履歴データを保存（上書き）する
-export async function saveHistoryToGist(pat, gistId, historyData) {
+// Gistへデータ（履歴 + 解いた問題ID）を保存（上書き）する
+export async function saveDataToGist(pat, gistId, history, seenIds) {
   try {
     const response = await fetch(`https://api.github.com/gists/${gistId}`, {
       method: 'PATCH',
@@ -39,7 +42,7 @@ export async function saveHistoryToGist(pat, gistId, historyData) {
       body: JSON.stringify({
         files: {
           [GIST_FILENAME]: {
-            content: JSON.stringify(historyData, null, 2)
+            content: JSON.stringify({ history, seenIds }, null, 2)
           }
         }
       })

@@ -4,7 +4,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tool
 
 // 分離したデータとAPIをインポート
 import { QUESTIONS, DOMAINS, DIFFICULTIES, QUESTION_COUNTS } from './questions';
-import { fetchHistoryFromGist, saveHistoryToGist } from './gistApi';
+import { fetchDataFromGist, saveDataToGist } from './gistApi';
 
 DOMAINS.all.icon = BarChart3;
 DOMAINS.concepts.icon = Cloud;
@@ -47,9 +47,11 @@ export default function App() {
         
         // 非同期でGistから最新データを取得してマージ
         try {
-          const remoteHistory = await fetchHistoryFromGist(parsedConfig.pat, parsedConfig.gistId);
+          const { history: remoteHistory, seenIds: remoteSeenIds } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
           setHistory(remoteHistory);
+          setSeenIds(new Set(remoteSeenIds));
           localStorage.setItem('aws_clf_history', JSON.stringify(remoteHistory));
+          localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeenIds));
         } catch (e) {
           console.error('Gistからの取得に失敗、ローカルデータを使用します', e);
           const localHistory = localStorage.getItem('aws_clf_history');
@@ -74,13 +76,15 @@ export default function App() {
     setIsSyncing(true);
     setAuthError('');
     try {
-      const data = await fetchHistoryFromGist(pat, gistId);
+      const { history: data, seenIds: remoteSeen } = await fetchDataFromGist(pat, gistId);
       const newConfig = { pat, gistId };
-      
+
       localStorage.setItem('aws_clf_sync_config', JSON.stringify(newConfig));
       setSyncConfig(newConfig);
       setHistory(data);
+      setSeenIds(new Set(remoteSeen));
       localStorage.setItem('aws_clf_history', JSON.stringify(data));
+      localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeen));
       setScreen('setup');
     } catch (e) {
       setAuthError('Gistの読み込みに失敗しました。PATとGist IDを確認してください。');
@@ -162,10 +166,10 @@ export default function App() {
     setSeenIds(newSeenIds);
     localStorage.setItem('aws_clf_seen_questions', JSON.stringify([...newSeenIds]));
 
-    // 2. Gistへ非同期保存
+    // 2. Gistへ非同期保存（履歴 + 解いた問題ID）
     if (syncConfig) {
       try {
-        await saveHistoryToGist(syncConfig.pat, syncConfig.gistId, nh);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds]);
       } catch (e) {
         console.error('Gistへの保存に失敗しました', e);
       }
@@ -180,7 +184,7 @@ export default function App() {
     localStorage.removeItem('aws_clf_seen_questions');
     if (syncConfig) {
       try {
-        await saveHistoryToGist(syncConfig.pat, syncConfig.gistId, []);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], []);
       } catch(e) {
         console.error('Gistのクリアに失敗', e);
       }
