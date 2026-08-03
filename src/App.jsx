@@ -59,6 +59,7 @@ export default function App() {
   const [seenIds, setSeenIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_seen_questions') || '[]')));
   const [wrongIds, setWrongIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_wrong_questions') || '[]')));
   const [wrongCounts, setWrongCounts] = useState(() => JSON.parse(localStorage.getItem('aws_clf_wrong_counts') || '{}'));
+  const [lastSeenMap, setLastSeenMap] = useState(() => JSON.parse(localStorage.getItem('aws_clf_last_seen') || '{}'));
   const [syncConfig, setSyncConfig] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -74,15 +75,17 @@ export default function App() {
         
         // 非同期でGistから最新データを取得してマージ
         try {
-          const { history: remoteHistory, seenIds: remoteSeenIds, wrongIds: remoteWrongIds, wrongCounts: remoteWrongCounts } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
-          setHistory(remoteHistory);
-          setSeenIds(new Set(remoteSeenIds));
-          setWrongIds(new Set(remoteWrongIds));
-          setWrongCounts(remoteWrongCounts);
-          localStorage.setItem('aws_clf_history', JSON.stringify(remoteHistory));
-          localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeenIds));
-          localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrongIds));
-          localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remoteWrongCounts));
+          const remote = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
+          setHistory(remote.history);
+          setSeenIds(new Set(remote.seenIds));
+          setWrongIds(new Set(remote.wrongIds));
+          setWrongCounts(remote.wrongCounts);
+          setLastSeenMap(remote.lastSeen);
+          localStorage.setItem('aws_clf_history', JSON.stringify(remote.history));
+          localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remote.seenIds));
+          localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remote.wrongIds));
+          localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remote.wrongCounts));
+          localStorage.setItem('aws_clf_last_seen', JSON.stringify(remote.lastSeen));
         } catch (e) {
           console.error('Gistからの取得に失敗、ローカルデータを使用します', e);
           const localHistory = localStorage.getItem('aws_clf_history');
@@ -112,19 +115,21 @@ export default function App() {
     setIsSyncing(true);
     setAuthError('');
     try {
-      const { history: data, seenIds: remoteSeen, wrongIds: remoteWrong, wrongCounts: remoteWrongCounts } = await fetchDataFromGist(pat, gistId);
+      const remote = await fetchDataFromGist(pat, gistId);
       const newConfig = { pat, gistId };
 
       localStorage.setItem('aws_clf_sync_config', JSON.stringify(newConfig));
       setSyncConfig(newConfig);
-      setHistory(data);
-      setSeenIds(new Set(remoteSeen));
-      setWrongIds(new Set(remoteWrong));
-      setWrongCounts(remoteWrongCounts);
-      localStorage.setItem('aws_clf_history', JSON.stringify(data));
-      localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeen));
-      localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrong));
-      localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remoteWrongCounts));
+      setHistory(remote.history);
+      setSeenIds(new Set(remote.seenIds));
+      setWrongIds(new Set(remote.wrongIds));
+      setWrongCounts(remote.wrongCounts);
+      setLastSeenMap(remote.lastSeen);
+      localStorage.setItem('aws_clf_history', JSON.stringify(remote.history));
+      localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remote.seenIds));
+      localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remote.wrongIds));
+      localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remote.wrongCounts));
+      localStorage.setItem('aws_clf_last_seen', JSON.stringify(remote.lastSeen));
       setScreen('setup');
     } catch (e) {
       setAuthError('Gistの読み込みに失敗しました。PATとGist IDを確認してください。');
@@ -140,18 +145,19 @@ export default function App() {
     return { ...q, options: newOpts, correctAnswers: newCorrectAnswers };
   });
 
+  // 出題済み配列を「最後に出題してからの経過が長い順」に並べ替える（未出題は0扱いで最優先）
+  const byRecency = (arr) => shuffle(arr).sort((a, b) => (lastSeenMap[a.id] || 0) - (lastSeenMap[b.id] || 0));
+
   const startQuiz = () => {
     const filtered = QUESTIONS.filter(q => matchesFilter(q, config));
-    // 優先度: ①未出題 → ②出題済み・正解済み → ③苦手問題(間違えたまま)は最後に回す
-    // こうすることで通常のクイズが苦手問題ばかりに偏らないようにする
-    const unseen   = filtered.filter(q => !seenIds.has(q.id));
-    const seenOk   = filtered.filter(q => seenIds.has(q.id) && !wrongIds.has(q.id));
-    const seenWrong= filtered.filter(q => wrongIds.has(q.id));
-    const need   = Math.min(config.count, filtered.length);
-    const fromUnseen = shuffle(unseen).slice(0, need);
-    const fromSeenOk = shuffle(seenOk).slice(0, need - fromUnseen.length);
-    const fromWrong  = shuffle(seenWrong).slice(0, need - fromUnseen.length - fromSeenOk.length);
-    const picked = [...fromUnseen, ...fromSeenOk, ...fromWrong];
+    // 優先度: ①最後に出題してから最も経過している問題(未出題を含む) → ②苦手問題(間違えたまま)は最後に回す
+    // こうすることで、直近解いたばかりの問題が連続で出題されたり、通常出題が苦手問題ばかりに偏るのを防ぐ
+    const notWrong = filtered.filter(q => !wrongIds.has(q.id));
+    const wrongOnes = filtered.filter(q => wrongIds.has(q.id));
+    const need = Math.min(config.count, filtered.length);
+    const fromNotWrong = byRecency(notWrong).slice(0, need);
+    const fromWrong = byRecency(wrongOnes).slice(0, need - fromNotWrong.length);
+    const picked = shuffle([...fromNotWrong, ...fromWrong]);
     const shuffled = shuffleOptions(picked);
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
@@ -230,10 +236,17 @@ export default function App() {
     setWrongCounts(newWrongCounts);
     localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(newWrongCounts));
 
-    // 5. Gistへ非同期保存（履歴 + 解いた問題ID + 間違えた問題ID + 間違えた回数）
+    // 5. 最終出題日時を記録（出題済み問題の中での優先順位付けに使う。直近出題したものほど後回しになる）
+    const now = Date.now();
+    const newLastSeenMap = { ...lastSeenMap };
+    results.forEach(r => { newLastSeenMap[r.questionId] = now; });
+    setLastSeenMap(newLastSeenMap);
+    localStorage.setItem('aws_clf_last_seen', JSON.stringify(newLastSeenMap));
+
+    // 6. Gistへ非同期保存
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds], [...newWrongIds], newWrongCounts);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, { history: nh, seenIds: [...newSeenIds], wrongIds: [...newWrongIds], wrongCounts: newWrongCounts, lastSeen: newLastSeenMap });
       } catch (e) {
         console.error('Gistへの保存に失敗しました', e);
       }
@@ -246,13 +259,15 @@ export default function App() {
     setSeenIds(new Set());
     setWrongIds(new Set());
     setWrongCounts({});
+    setLastSeenMap({});
     localStorage.removeItem('aws_clf_history');
     localStorage.removeItem('aws_clf_seen_questions');
     localStorage.removeItem('aws_clf_wrong_questions');
     localStorage.removeItem('aws_clf_wrong_counts');
+    localStorage.removeItem('aws_clf_last_seen');
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], [], [], {});
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, { history: [], seenIds: [], wrongIds: [], wrongCounts: {}, lastSeen: {} });
       } catch(e) {
         console.error('Gistのクリアに失敗', e);
       }
