@@ -17,20 +17,20 @@ export async function fetchDataFromGist(pat, gistId) {
     const gist = await response.json();
     const file = gist.files[GIST_FILENAME];
 
-    if (!file || !file.content) return { history: [], seenIds: [], wrongIds: [] };
+    if (!file || !file.content) return { history: [], seenIds: [], wrongIds: [], wrongCounts: {} };
 
     const parsed = JSON.parse(file.content);
     // 旧フォーマット（配列のみ）の後方互換
-    if (Array.isArray(parsed)) return { history: parsed, seenIds: [], wrongIds: [] };
-    return { history: parsed.history || [], seenIds: parsed.seenIds || [], wrongIds: parsed.wrongIds || [] };
+    if (Array.isArray(parsed)) return { history: parsed, seenIds: [], wrongIds: [], wrongCounts: {} };
+    return { history: parsed.history || [], seenIds: parsed.seenIds || [], wrongIds: parsed.wrongIds || [], wrongCounts: parsed.wrongCounts || {} };
   } catch (error) {
     console.error("Gist fetch error:", error);
     throw error;
   }
 }
 
-// Gistへデータ（履歴 + 解いた問題ID + 間違えた問題ID）を保存（上書き）する
-export async function saveDataToGist(pat, gistId, history, seenIds, wrongIds) {
+// Gistへデータ（履歴 + 解いた問題ID + 間違えた問題ID + 間違えた回数）を保存（上書き）する
+export async function saveDataToGist(pat, gistId, history, seenIds, wrongIds, wrongCounts) {
   try {
     const response = await fetch(`https://api.github.com/gists/${gistId}`, {
       method: 'PATCH',
@@ -42,7 +42,7 @@ export async function saveDataToGist(pat, gistId, history, seenIds, wrongIds) {
       body: JSON.stringify({
         files: {
           [GIST_FILENAME]: {
-            content: JSON.stringify({ history, seenIds, wrongIds }, null, 2)
+            content: JSON.stringify({ history, seenIds, wrongIds, wrongCounts }, null, 2)
           }
         }
       })

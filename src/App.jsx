@@ -58,6 +58,7 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [seenIds, setSeenIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_seen_questions') || '[]')));
   const [wrongIds, setWrongIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_wrong_questions') || '[]')));
+  const [wrongCounts, setWrongCounts] = useState(() => JSON.parse(localStorage.getItem('aws_clf_wrong_counts') || '{}'));
   const [syncConfig, setSyncConfig] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -73,13 +74,15 @@ export default function App() {
         
         // 非同期でGistから最新データを取得してマージ
         try {
-          const { history: remoteHistory, seenIds: remoteSeenIds, wrongIds: remoteWrongIds } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
+          const { history: remoteHistory, seenIds: remoteSeenIds, wrongIds: remoteWrongIds, wrongCounts: remoteWrongCounts } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
           setHistory(remoteHistory);
           setSeenIds(new Set(remoteSeenIds));
           setWrongIds(new Set(remoteWrongIds));
+          setWrongCounts(remoteWrongCounts);
           localStorage.setItem('aws_clf_history', JSON.stringify(remoteHistory));
           localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeenIds));
           localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrongIds));
+          localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remoteWrongCounts));
         } catch (e) {
           console.error('Gistからの取得に失敗、ローカルデータを使用します', e);
           const localHistory = localStorage.getItem('aws_clf_history');
@@ -99,12 +102,17 @@ export default function App() {
     QUESTIONS.filter(q => matchesFilter(q, config) && !seenIds.has(q.id)).length
   , [config.domain, config.module, config.filterType, config.difficulty, seenIds]);
 
+  // 2回以上間違えている「要注意問題」のID一覧（現在の正誤に関わらず累積回数で判定）
+  const frequentWrongIds = useMemo(() =>
+    Object.keys(wrongCounts).filter(id => wrongCounts[id] >= 2).map(Number)
+  , [wrongCounts]);
+
   // --- 追加: 初期設定画面からの保存処理 ---
   const handleAuthSave = async (pat, gistId) => {
     setIsSyncing(true);
     setAuthError('');
     try {
-      const { history: data, seenIds: remoteSeen, wrongIds: remoteWrong } = await fetchDataFromGist(pat, gistId);
+      const { history: data, seenIds: remoteSeen, wrongIds: remoteWrong, wrongCounts: remoteWrongCounts } = await fetchDataFromGist(pat, gistId);
       const newConfig = { pat, gistId };
 
       localStorage.setItem('aws_clf_sync_config', JSON.stringify(newConfig));
@@ -112,9 +120,11 @@ export default function App() {
       setHistory(data);
       setSeenIds(new Set(remoteSeen));
       setWrongIds(new Set(remoteWrong));
+      setWrongCounts(remoteWrongCounts);
       localStorage.setItem('aws_clf_history', JSON.stringify(data));
       localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeen));
       localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrong));
+      localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(remoteWrongCounts));
       setScreen('setup');
     } catch (e) {
       setAuthError('Gistの読み込みに失敗しました。PATとGist IDを確認してください。');
@@ -142,11 +152,14 @@ export default function App() {
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
 
-  const startWrongOnly = () => {
-    const picked = QUESTIONS.filter(q => wrongIds.has(q.id));
+  const startFromIds = (ids) => {
+    const picked = QUESTIONS.filter(q => ids.has(q.id));
     const shuffled = shuffleOptions(shuffle(picked));
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
+
+  const startWrongOnly = () => startFromIds(wrongIds);
+  const startFrequentWrong = () => startFromIds(new Set(frequentWrongIds));
 
   const arraysEqual = (a, b) => {
     const sorted_a = [...a].sort((x,y)=>x-y);
@@ -207,10 +220,16 @@ export default function App() {
     setWrongIds(newWrongIds);
     localStorage.setItem('aws_clf_wrong_questions', JSON.stringify([...newWrongIds]));
 
-    // 4. Gistへ非同期保存（履歴 + 解いた問題ID + 間違えた問題ID）
+    // 4. 間違えた累積回数を記録（正解しても回数はリセットしない。要注意問題の判定に使う）
+    const newWrongCounts = { ...wrongCounts };
+    results.forEach(r => { if (!r.correct) newWrongCounts[r.questionId] = (newWrongCounts[r.questionId] || 0) + 1; });
+    setWrongCounts(newWrongCounts);
+    localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(newWrongCounts));
+
+    // 5. Gistへ非同期保存（履歴 + 解いた問題ID + 間違えた問題ID + 間違えた回数）
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds], [...newWrongIds]);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds], [...newWrongIds], newWrongCounts);
       } catch (e) {
         console.error('Gistへの保存に失敗しました', e);
       }
@@ -222,12 +241,14 @@ export default function App() {
     setHistory([]);
     setSeenIds(new Set());
     setWrongIds(new Set());
+    setWrongCounts({});
     localStorage.removeItem('aws_clf_history');
     localStorage.removeItem('aws_clf_seen_questions');
     localStorage.removeItem('aws_clf_wrong_questions');
+    localStorage.removeItem('aws_clf_wrong_counts');
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], [], []);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], [], [], {});
       } catch(e) {
         console.error('Gistのクリアに失敗', e);
       }
@@ -252,7 +273,7 @@ export default function App() {
             error={authError} 
           />
         )}
-        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} wrongCount={wrongIds.size} onStartWrongOnly={startWrongOnly} />}
+        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} wrongCount={wrongIds.size} onStartWrongOnly={startWrongOnly} frequentWrongCount={frequentWrongIds.length} onStartFrequentWrong={startFrequentWrong} />}
         {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
         {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
@@ -261,7 +282,7 @@ export default function App() {
   );
 }
 
-function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,historyCount,onShowHistory,wrongCount,onStartWrongOnly}) {
+function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,historyCount,onShowHistory,wrongCount,onStartWrongOnly,frequentWrongCount,onStartFrequentWrong}) {
   return (
     <div className="fade-up">
       <div className="flex justify-end mb-3">
@@ -276,6 +297,16 @@ function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,hist
         <h1 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight">AWS Cloud Practitioner<br/><span style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>練習問題集</span></h1>
         <p className="text-slate-400 mt-3 text-sm">難易度・領域・問題数を選んで始めよう</p>
       </div>
+      {frequentWrongCount>0&&(
+        <button onClick={onStartFrequentWrong} className="w-full mb-3 rounded-2xl p-4 flex items-center gap-3 text-left" style={{background:'rgba(251,146,60,0.12)',border:'1.5px solid rgba(251,146,60,0.4)'}}>
+          <div className="flex items-center justify-center rounded-xl flex-shrink-0" style={{width:44,height:44,background:'rgba(251,146,60,0.18)'}}><Flame size={20} style={{color:'#fb923c'}}/></div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-white text-sm">要注意問題（複数回ミス）</div>
+            <div className="text-xs text-slate-400 mt-0.5">2回以上間違えた <span className="mono font-bold" style={{color:'#fb923c'}}>{frequentWrongCount}</span> 問を集中出題</div>
+          </div>
+          <ChevronRight size={18} style={{color:'#fb923c'}}/>
+        </button>
+      )}
       {wrongCount>0&&(
         <button onClick={onStartWrongOnly} className="w-full mb-6 rounded-2xl p-4 flex items-center gap-3 text-left" style={{background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.35)'}}>
           <div className="flex items-center justify-center rounded-xl flex-shrink-0" style={{width:44,height:44,background:'rgba(239,68,68,0.15)'}}><X size={20} style={{color:'#f87171'}}/></div>
