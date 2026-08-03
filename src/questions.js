@@ -459,4 +459,56 @@ export const DIFFICULTIES = {
   advanced: { label: '上級', stars: '★★★', desc: '応用・詳細' },
 };
 
+// 各問題(id順)が属するAWS Skill Builder公式コース「AWS Cloud Practitioner Essentials」のモジュール
+export const QUESTION_MODULES = [
+  'intro','global','global','intro','global','intro','computeSvc','intro','intro','global','intro','intro',
+  'computeSvc','global','pricing','wa','wa','wa','wa','wa','wa','wa','wa','migration',
+  'migration','wa','wa','wa','wa','wa','wa','wa','migration','wa','migration','migration',
+  'wa','wa','intro','computeSvc','wa','global','global','wa','intro','security','security','security',
+  'security','security','security','security','security','security','security','security','monitor','security','security','security',
+  'network','security','security','monitor','security','security','monitor','security','storage','security','security','security',
+  'security','security','security','security','security','security','security','security','monitor','security','security','security',
+  'security','security','security','security','security','security','compute','storage','computeSvc','network','database','compute',
+  'network','monitor','network','database','storage','compute','network','computeSvc','computeSvc','storage','network','compute',
+  'global','network','database','database','computeSvc','storage','database','storage','storage','storage','computeSvc','computeSvc',
+  'database','computeSvc','storage','network','aiml','aiml','storage','aiml','network','network','aiml','aiml',
+  'network','computeSvc','computeSvc','pricing','pricing','pricing','pricing','pricing','pricing','pricing','pricing','pricing',
+  'pricing','pricing','pricing','pricing','pricing','pricing','compute','compute','monitor','monitor','monitor','compute',
+  'pricing','compute','pricing','compute','storage','pricing','pricing','monitor','pricing','pricing','pricing','pricing',
+  'compute','monitor','monitor','monitor','pricing','pricing','pricing','pricing','pricing','pricing','pricing','pricing',
+  'intro','intro','computeSvc','database','migration','migration','security','network','network','security','security','security',
+  'computeSvc','monitor','computeSvc','computeSvc','database','migration','pricing','pricing','monitor','pricing','monitor','pricing',
+  'intro','intro','intro','intro','computeSvc','storage','migration','wa','wa','wa','monitor','monitor',
+  'pricing','compute','wa','security','security','security','security','network','storage','storage','network','monitor',
+  'monitor','security','security','security','monitor','security','computeSvc','computeSvc','aiml','computeSvc','aiml','security',
+  'monitor','aiml','computeSvc','aiml','aiml','database','computeSvc','aiml','computeSvc','compute','database','storage',
+  'pricing','pricing','compute','pricing','compute','monitor','pricing','pricing','compute','pricing','pricing','pricing',
+  'aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml',
+  'aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml','aiml',
+  'aiml','aiml','aiml','aiml','aiml','aiml','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc',
+  'computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','database','database','database',
+  'storage','storage','storage','database','database','database','database','database','database','monitor','monitor','monitor',
+  'monitor','monitor','monitor','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc','computeSvc',
+  'computeSvc','aiml','computeSvc','network','network','network','monitor','monitor','monitor','storage','storage','storage',
+  'storage','storage','storage','computeSvc','computeSvc','computeSvc',
+];
+QUESTIONS.forEach((q, i) => { q.module = QUESTION_MODULES[i]; });
+
+export const MODULES = {
+  all:        { order: 0,  label: 'すべてのモジュール',                        short: '全モジュール',   color: '#FF9900', bg: 'rgba(255,153,0,0.1)' },
+  intro:      { order: 1,  label: 'Module 1: クラウド入門',                    short: 'クラウド入門',   color: '#60a5fa', bg: 'rgba(96,165,250,0.1)' },
+  compute:    { order: 2,  label: 'Module 2: コンピューティングの基礎',        short: 'コンピューティング基礎', color: '#fb923c', bg: 'rgba(251,146,60,0.1)' },
+  computeSvc: { order: 3,  label: 'Module 3: コンピューティングサービス',      short: 'コンピューティング応用', color: '#f472b6', bg: 'rgba(244,114,182,0.1)' },
+  global:     { order: 4,  label: 'Module 4: グローバル展開',                  short: 'グローバル展開', color: '#34d399', bg: 'rgba(52,211,153,0.1)' },
+  network:    { order: 5,  label: 'Module 5: ネットワーキング',                short: 'ネットワーキング', color: '#38bdf8', bg: 'rgba(56,189,248,0.1)' },
+  storage:    { order: 6,  label: 'Module 6: ストレージ',                      short: 'ストレージ',     color: '#a78bfa', bg: 'rgba(167,139,250,0.1)' },
+  database:   { order: 7,  label: 'Module 7: データベース',                    short: 'データベース',   color: '#facc15', bg: 'rgba(250,204,21,0.1)' },
+  aiml:       { order: 8,  label: 'Module 8: AI/ML・データ分析',               short: 'AI/ML・分析',    color: '#c084fc', bg: 'rgba(192,132,252,0.1)' },
+  security:   { order: 9,  label: 'Module 9: セキュリティ',                    short: 'セキュリティ',   color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
+  monitor:    { order: 10, label: 'Module 10: モニタリング・ガバナンス',       short: 'モニタリング',   color: '#4ade80', bg: 'rgba(74,222,128,0.1)' },
+  pricing:    { order: 11, label: 'Module 11: 料金とサポート',                 short: '料金・サポート', color: '#fbbf24', bg: 'rgba(251,191,36,0.1)' },
+  migration:  { order: 12, label: 'Module 12: クラウドへの移行',               short: '移行',           color: '#2dd4bf', bg: 'rgba(45,212,191,0.1)' },
+  wa:         { order: 13, label: 'Module 13: Well-Architectedな設計',         short: 'Well-Architected', color: '#FF9900', bg: 'rgba(255,153,0,0.1)' },
+};
+
 export const QUESTION_COUNTS = [5, 10, 15, 20];
