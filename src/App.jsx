@@ -142,12 +142,16 @@ export default function App() {
 
   const startQuiz = () => {
     const filtered = QUESTIONS.filter(q => matchesFilter(q, config));
-    const unseen = filtered.filter(q => !seenIds.has(q.id));
-    const seen   = filtered.filter(q =>  seenIds.has(q.id));
+    // 優先度: ①未出題 → ②出題済み・正解済み → ③苦手問題(間違えたまま)は最後に回す
+    // こうすることで通常のクイズが苦手問題ばかりに偏らないようにする
+    const unseen   = filtered.filter(q => !seenIds.has(q.id));
+    const seenOk   = filtered.filter(q => seenIds.has(q.id) && !wrongIds.has(q.id));
+    const seenWrong= filtered.filter(q => wrongIds.has(q.id));
     const need   = Math.min(config.count, filtered.length);
     const fromUnseen = shuffle(unseen).slice(0, need);
-    const fromSeen   = shuffle(seen).slice(0, need - fromUnseen.length);
-    const picked = [...fromUnseen, ...fromSeen];
+    const fromSeenOk = shuffle(seenOk).slice(0, need - fromUnseen.length);
+    const fromWrong  = shuffle(seenWrong).slice(0, need - fromUnseen.length - fromSeenOk.length);
+    const picked = [...fromUnseen, ...fromSeenOk, ...fromWrong];
     const shuffled = shuffleOptions(picked);
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
@@ -364,6 +368,7 @@ function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,hist
             : <span className="ml-2" style={{color:'#f59e0b'}}>（全問出題済み・ランダム選択）</span>
           }
         </div>
+        {wrongCount>0&&<div className="mt-1 text-[11px] text-slate-500 text-center">苦手問題（{wrongCount}問）は通常出題では後回しになります</div>}
       </div>
       <button onClick={startQuiz} disabled={availableCount===0} className="w-full mt-2 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:availableCount===0?'rgba(255,255,255,0.05)':'linear-gradient(90deg,#FF9900,#FFB84D)',color:availableCount===0?'#64748b':'#0a0e1a',boxShadow:availableCount===0?'none':'0 8px 24px rgba(255,153,0,0.3)'}}>スタート <ChevronRight size={18} strokeWidth={3}/></button>
     </div>
