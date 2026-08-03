@@ -57,6 +57,7 @@ export default function App() {
   const [results, setResults] = useState([]);
   const [history, setHistory] = useState([]);
   const [seenIds, setSeenIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_seen_questions') || '[]')));
+  const [wrongIds, setWrongIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_wrong_questions') || '[]')));
   const [syncConfig, setSyncConfig] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -72,11 +73,13 @@ export default function App() {
         
         // 非同期でGistから最新データを取得してマージ
         try {
-          const { history: remoteHistory, seenIds: remoteSeenIds } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
+          const { history: remoteHistory, seenIds: remoteSeenIds, wrongIds: remoteWrongIds } = await fetchDataFromGist(parsedConfig.pat, parsedConfig.gistId);
           setHistory(remoteHistory);
           setSeenIds(new Set(remoteSeenIds));
+          setWrongIds(new Set(remoteWrongIds));
           localStorage.setItem('aws_clf_history', JSON.stringify(remoteHistory));
           localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeenIds));
+          localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrongIds));
         } catch (e) {
           console.error('Gistからの取得に失敗、ローカルデータを使用します', e);
           const localHistory = localStorage.getItem('aws_clf_history');
@@ -101,15 +104,17 @@ export default function App() {
     setIsSyncing(true);
     setAuthError('');
     try {
-      const { history: data, seenIds: remoteSeen } = await fetchDataFromGist(pat, gistId);
+      const { history: data, seenIds: remoteSeen, wrongIds: remoteWrong } = await fetchDataFromGist(pat, gistId);
       const newConfig = { pat, gistId };
 
       localStorage.setItem('aws_clf_sync_config', JSON.stringify(newConfig));
       setSyncConfig(newConfig);
       setHistory(data);
       setSeenIds(new Set(remoteSeen));
+      setWrongIds(new Set(remoteWrong));
       localStorage.setItem('aws_clf_history', JSON.stringify(data));
       localStorage.setItem('aws_clf_seen_questions', JSON.stringify(remoteSeen));
+      localStorage.setItem('aws_clf_wrong_questions', JSON.stringify(remoteWrong));
       setScreen('setup');
     } catch (e) {
       setAuthError('Gistの読み込みに失敗しました。PATとGist IDを確認してください。');
@@ -137,8 +142,9 @@ export default function App() {
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
 
-  const retryWrongQuestions = (wrongQuestions) => {
-    const shuffled = shuffleOptions(shuffle(wrongQuestions));
+  const startWrongOnly = () => {
+    const picked = QUESTIONS.filter(q => wrongIds.has(q.id));
+    const shuffled = shuffleOptions(shuffle(picked));
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
 
@@ -195,10 +201,16 @@ export default function App() {
     setSeenIds(newSeenIds);
     localStorage.setItem('aws_clf_seen_questions', JSON.stringify([...newSeenIds]));
 
-    // 2. Gistへ非同期保存（履歴 + 解いた問題ID）
+    // 3. 間違えた問題IDを記録（正解したら苦手リストから外す）
+    const newWrongIds = new Set(wrongIds);
+    results.forEach(r => { if (r.correct) newWrongIds.delete(r.questionId); else newWrongIds.add(r.questionId); });
+    setWrongIds(newWrongIds);
+    localStorage.setItem('aws_clf_wrong_questions', JSON.stringify([...newWrongIds]));
+
+    // 4. Gistへ非同期保存（履歴 + 解いた問題ID + 間違えた問題ID）
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds]);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, nh, [...newSeenIds], [...newWrongIds]);
       } catch (e) {
         console.error('Gistへの保存に失敗しました', e);
       }
@@ -209,11 +221,13 @@ export default function App() {
   const clearHistory = async () => {
     setHistory([]);
     setSeenIds(new Set());
+    setWrongIds(new Set());
     localStorage.removeItem('aws_clf_history');
     localStorage.removeItem('aws_clf_seen_questions');
+    localStorage.removeItem('aws_clf_wrong_questions');
     if (syncConfig) {
       try {
-        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], []);
+        await saveDataToGist(syncConfig.pat, syncConfig.gistId, [], [], []);
       } catch(e) {
         console.error('Gistのクリアに失敗', e);
       }
@@ -238,16 +252,16 @@ export default function App() {
             error={authError} 
           />
         )}
-        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} />}
+        {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} wrongCount={wrongIds.size} onStartWrongOnly={startWrongOnly} />}
         {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
-        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} onRetryWrong={retryWrongQuestions} />}
+        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
       </div>
     </div>
   );
 }
 
-function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,historyCount,onShowHistory}) {
+function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,historyCount,onShowHistory,wrongCount,onStartWrongOnly}) {
   return (
     <div className="fade-up">
       <div className="flex justify-end mb-3">
@@ -262,6 +276,16 @@ function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,hist
         <h1 className="text-3xl sm:text-4xl font-black text-white leading-tight tracking-tight">AWS Cloud Practitioner<br/><span style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>練習問題集</span></h1>
         <p className="text-slate-400 mt-3 text-sm">難易度・領域・問題数を選んで始めよう</p>
       </div>
+      {wrongCount>0&&(
+        <button onClick={onStartWrongOnly} className="w-full mb-6 rounded-2xl p-4 flex items-center gap-3 text-left" style={{background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.35)'}}>
+          <div className="flex items-center justify-center rounded-xl flex-shrink-0" style={{width:44,height:44,background:'rgba(239,68,68,0.15)'}}><X size={20} style={{color:'#f87171'}}/></div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-white text-sm">苦手問題に再挑戦</div>
+            <div className="text-xs text-slate-400 mt-0.5">これまで間違えた <span className="mono font-bold" style={{color:'#f87171'}}>{wrongCount}</span> 問だけを出題</div>
+          </div>
+          <ChevronRight size={18} style={{color:'#f87171'}}/>
+        </button>
+      )}
       <div className="mb-6"><div className="flex items-center gap-2 mb-3"><Target size={16} style={{color:'#FF9900'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">難易度</h2></div>
         <div className="grid grid-cols-2 gap-2.5">{Object.entries(DIFFICULTIES).map(([k,v])=>(
           <button key={k} onClick={()=>setConfig({...config,difficulty:k})} className="rounded-xl p-3 text-white" style={{background:config.difficulty===k?'rgba(255,153,0,0.12)':'rgba(255,255,255,0.03)',border:`1.5px solid ${config.difficulty===k?'#FF9900':'rgba(255,255,255,0.08)'}`}}>
@@ -378,7 +402,7 @@ function QuizScreen({question,index,total,selectedAnswers,showFeedback,onSelect,
   );
 }
 
-function ResultScreen({results,questions,onRestart,onRetryWrong}) {
+function ResultScreen({results,questions,onRestart}) {
   const correct=results.filter(r=>r.correct).length;const total=results.length;const acc=Math.round((correct/total)*100);
   const byDomain=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.domain])m[r.domain]={correct:0,total:0};m[r.domain].total++;if(r.correct)m[r.domain].correct++;});return Object.entries(m).map(([k,v])=>({key:k,...DOMAINS[k],...v,accuracy:Math.round((v.correct/v.total)*100)})).sort((a,b)=>a.accuracy-b.accuracy);},[results]);
   const byDiff=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.difficulty])m[r.difficulty]={correct:0,total:0};m[r.difficulty].total++;if(r.correct)m[r.difficulty].correct++;});return['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],...m[k],accuracy:Math.round((m[k].correct/m[k].total)*100)}));},[results]);
@@ -432,8 +456,7 @@ function ResultScreen({results,questions,onRestart,onRetryWrong}) {
           <div className="rounded-lg p-2.5 flex gap-2" style={{background:'rgba(255,184,77,0.08)'}}><Lightbulb size={14} style={{color:'#FFB84D'}} className="flex-shrink-0 mt-0.5"/><p className="text-xs text-slate-300 leading-relaxed">{r.q.explanation}</p></div>
         </div>))}</div>
       </details>}
-      {wrong.length>0&&<button onClick={()=>onRetryWrong(wrong.map(r=>r.q))} className="w-full mt-4 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'rgba(239,68,68,0.12)',border:'1.5px solid rgba(239,68,68,0.4)',color:'#f87171'}}><X size={18} strokeWidth={3}/> 間違えた{wrong.length}問だけ復習する</button>}
-      <button onClick={onRestart} className="w-full mt-3 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}><RotateCcw size={18} strokeWidth={3}/> もう一度挑戦</button>
+      <button onClick={onRestart} className="w-full mt-4 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}><RotateCcw size={18} strokeWidth={3}/> もう一度挑戦</button>
     </div>
   );
 }

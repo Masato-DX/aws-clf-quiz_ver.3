@@ -62,6 +62,7 @@ Q(id, 'ドメイン', '難易度', '問題文（複数選択）', ['選択肢0',
 |---|---|
 | `aws_clf_history` | 学習セッション履歴 |
 | `aws_clf_seen_questions` | 解いた問題 ID 一覧（未出題優先機能） |
+| `aws_clf_wrong_questions` | 直近で間違えた問題 ID 一覧（苦手問題再挑戦機能。正解すると除外） |
 | `aws_clf_sync_config` | Gist 同期設定（PAT・Gist ID） |
 
 ## 開発コマンド
