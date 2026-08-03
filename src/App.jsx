@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Cloud, Shield, Server, DollarSign, ChevronRight, RotateCcw, Trophy, Check, X, BarChart3, Target, BookOpen, AlertCircle, TrendingUp, Award, Lightbulb, Sparkles, History, ArrowLeft, Trash2, Calendar, Activity, Flame, Settings, Save, Loader2 } from 'lucide-react';
+import { Cloud, Shield, Server, DollarSign, ChevronRight, RotateCcw, Trophy, Check, X, BarChart3, Target, BookOpen, AlertCircle, TrendingUp, Award, Lightbulb, Sparkles, History, ArrowLeft, Trash2, Calendar, Activity, Flame, Settings, Save, Loader2, Globe, Network, HardDrive, Database, Brain, Eye, ArrowRightLeft, Layers } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Cell } from 'recharts';
 
 // 分離したデータとAPIをインポート
-import { QUESTIONS, DOMAINS, DIFFICULTIES, QUESTION_COUNTS } from './questions';
+import { QUESTIONS, DOMAINS, DIFFICULTIES, QUESTION_COUNTS, MODULES } from './questions';
 import { fetchDataFromGist, saveDataToGist } from './gistApi';
 
 DOMAINS.all.icon = BarChart3;
@@ -11,6 +11,31 @@ DOMAINS.concepts.icon = Cloud;
 DOMAINS.security.icon = Shield;
 DOMAINS.technology.icon = Server;
 DOMAINS.billing.icon = DollarSign;
+
+MODULES.all.icon = BarChart3;
+MODULES.intro.icon = Cloud;
+MODULES.compute.icon = Server;
+MODULES.computeSvc.icon = Layers;
+MODULES.global.icon = Globe;
+MODULES.network.icon = Network;
+MODULES.storage.icon = HardDrive;
+MODULES.database.icon = Database;
+MODULES.aiml.icon = Brain;
+MODULES.security.icon = Shield;
+MODULES.monitor.icon = Eye;
+MODULES.pricing.icon = DollarSign;
+MODULES.migration.icon = ArrowRightLeft;
+MODULES.wa.icon = Award;
+
+// モジュール表示順(order)でソートしたエントリ配列
+const MODULE_ENTRIES = Object.entries(MODULES).sort((a,b)=>a[1].order-b[1].order);
+
+// 難易度・領域(またはモジュール)の絞り込み条件に問題が合致するか判定
+function matchesFilter(q, config) {
+  if (config.difficulty !== 'all' && q.difficulty !== config.difficulty) return false;
+  if (config.filterType === 'module') return config.module === 'all' || q.module === config.module;
+  return config.domain === 'all' || q.domain === config.domain;
+}
 
 // 配列をシャッフルするための関数
 function shuffle(a) { 
@@ -24,7 +49,7 @@ function shuffle(a) {
 
 export default function App() {
   const [screen, setScreen] = useState('setup');
-  const [config, setConfig] = useState({ difficulty: 'all', domain: 'all', count: 10 });
+  const [config, setConfig] = useState({ difficulty: 'all', domain: 'all', module: 'all', filterType: 'domain', count: 10 });
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState([]);
@@ -64,12 +89,12 @@ export default function App() {
   }, []);
 
   const availableCount = useMemo(() =>
-    QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty)).length
-  , [config.domain, config.difficulty]);
+    QUESTIONS.filter(q => matchesFilter(q, config)).length
+  , [config.domain, config.module, config.filterType, config.difficulty]);
 
   const unseenCount = useMemo(() =>
-    QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty)&&!seenIds.has(q.id)).length
-  , [config.domain, config.difficulty, seenIds]);
+    QUESTIONS.filter(q => matchesFilter(q, config) && !seenIds.has(q.id)).length
+  , [config.domain, config.module, config.filterType, config.difficulty, seenIds]);
 
   // --- 追加: 初期設定画面からの保存処理 ---
   const handleAuthSave = async (pat, gistId) => {
@@ -94,7 +119,7 @@ export default function App() {
   };
 
   const startQuiz = () => {
-    const filtered = QUESTIONS.filter(q => (config.domain==='all'||q.domain===config.domain)&&(config.difficulty==='all'||q.difficulty===config.difficulty));
+    const filtered = QUESTIONS.filter(q => matchesFilter(q, config));
     const unseen = filtered.filter(q => !seenIds.has(q.id));
     const seen   = filtered.filter(q =>  seenIds.has(q.id));
     const need   = Math.min(config.count, filtered.length);
@@ -240,13 +265,32 @@ function SetupScreen({config,setConfig,availableCount,unseenCount,startQuiz,hist
           </button>
         ))}</div>
       </div>
-      <div className="mb-6"><div className="flex items-center gap-2 mb-3"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域</h2></div>
-        <div className="space-y-2">{Object.entries(DOMAINS).map(([k,v])=>{const Icon=v.icon;const a=config.domain===k;return(
-          <button key={k} onClick={()=>setConfig({...config,domain:k})} className="w-full text-left rounded-xl p-3.5 flex items-center gap-3" style={{background:a?v.bg:'rgba(255,255,255,0.03)',border:`1.5px solid ${a?v.color:'rgba(255,255,255,0.08)'}`}}>
-            <div className="flex items-center justify-center rounded-lg flex-shrink-0" style={{width:40,height:40,background:v.bg}}><Icon size={20} style={{color:v.color}}/></div>
-            <div className="flex-1 min-w-0"><div className="font-bold text-white text-sm">{v.label}</div></div>{a&&<Check size={18} style={{color:v.color}}/>}
-          </button>
-        );})}</div>
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">{config.filterType==='module'?'モジュール':'領域'}</h2></div>
+          <div className="flex rounded-lg overflow-hidden" style={{border:'1px solid rgba(255,255,255,0.08)'}}>
+            <button onClick={()=>setConfig({...config,filterType:'domain'})} className="px-2.5 py-1 text-[11px] font-bold" style={{background:config.filterType==='domain'?'rgba(255,153,0,0.15)':'transparent',color:config.filterType==='domain'?'#FFB84D':'#64748b'}}>領域</button>
+            <button onClick={()=>setConfig({...config,filterType:'module'})} className="px-2.5 py-1 text-[11px] font-bold" style={{background:config.filterType==='module'?'rgba(255,153,0,0.15)':'transparent',color:config.filterType==='module'?'#FFB84D':'#64748b'}}>モジュール</button>
+          </div>
+        </div>
+        {config.filterType==='domain'?(
+          <div className="space-y-2">{Object.entries(DOMAINS).map(([k,v])=>{const Icon=v.icon;const a=config.domain===k;return(
+            <button key={k} onClick={()=>setConfig({...config,domain:k})} className="w-full text-left rounded-xl p-3.5 flex items-center gap-3" style={{background:a?v.bg:'rgba(255,255,255,0.03)',border:`1.5px solid ${a?v.color:'rgba(255,255,255,0.08)'}`}}>
+              <div className="flex items-center justify-center rounded-lg flex-shrink-0" style={{width:40,height:40,background:v.bg}}><Icon size={20} style={{color:v.color}}/></div>
+              <div className="flex-1 min-w-0"><div className="font-bold text-white text-sm">{v.label}</div></div>{a&&<Check size={18} style={{color:v.color}}/>}
+            </button>
+          );})}</div>
+        ):(
+          <>
+            <p className="text-[11px] text-slate-500 mb-2.5">AWS Skill Builder公式コース「AWS Cloud Practitioner Essentials」の13モジュール単位で出題します。</p>
+            <div className="grid grid-cols-3 gap-2">{MODULE_ENTRIES.map(([k,v])=>{const Icon=v.icon;const a=config.module===k;return(
+              <button key={k} onClick={()=>setConfig({...config,module:k})} className="rounded-xl p-2.5 flex flex-col items-center gap-1 text-center" style={{background:a?v.bg:'rgba(255,255,255,0.03)',border:`1.5px solid ${a?v.color:'rgba(255,255,255,0.08)'}`}}>
+                <Icon size={16} style={{color:v.color}}/>
+                <span className="text-[10px] font-medium text-white leading-tight">{v.short}</span>
+              </button>
+            );})}</div>
+          </>
+        )}
       </div>
       <div className="mb-6"><div className="flex items-center gap-2 mb-3"><BarChart3 size={16} style={{color:'#a78bfa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">問題数</h2></div>
         <div className="grid grid-cols-4 gap-2">{QUESTION_COUNTS.map(n=>(
