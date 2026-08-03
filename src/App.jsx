@@ -118,6 +118,13 @@ export default function App() {
     }
   };
 
+  const shuffleOptions = (picked) => picked.map(q => {
+    const correctTexts = q.correctAnswers.map(i => q.options[i]);
+    const newOpts = shuffle([...q.options]);
+    const newCorrectAnswers = correctTexts.map(t => newOpts.indexOf(t)).sort((a,b)=>a-b);
+    return { ...q, options: newOpts, correctAnswers: newCorrectAnswers };
+  });
+
   const startQuiz = () => {
     const filtered = QUESTIONS.filter(q => matchesFilter(q, config));
     const unseen = filtered.filter(q => !seenIds.has(q.id));
@@ -126,12 +133,12 @@ export default function App() {
     const fromUnseen = shuffle(unseen).slice(0, need);
     const fromSeen   = shuffle(seen).slice(0, need - fromUnseen.length);
     const picked = [...fromUnseen, ...fromSeen];
-    const shuffled = picked.map(q => {
-      const correctTexts = q.correctAnswers.map(i => q.options[i]);
-      const newOpts = shuffle([...q.options]);
-      const newCorrectAnswers = correctTexts.map(t => newOpts.indexOf(t)).sort((a,b)=>a-b);
-      return { ...q, options: newOpts, correctAnswers: newCorrectAnswers };
-    });
+    const shuffled = shuffleOptions(picked);
+    setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
+  };
+
+  const retryWrongQuestions = (wrongQuestions) => {
+    const shuffled = shuffleOptions(shuffle(wrongQuestions));
     setQuestions(shuffled); setCurrentIdx(0); setSelectedAnswers([]); setShowFeedback(false); setResults([]); setScreen('quiz');
   };
 
@@ -148,15 +155,12 @@ export default function App() {
       setSelectedAnswers(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
     } else {
       setSelectedAnswers([idx]);
-      setShowFeedback(true);
-      const isCorrect = arraysEqual([idx], q.correctAnswers);
-      setResults(r => [...r, { questionId: q.id, selectedAnswers: [idx], correct: isCorrect, domain: q.domain, difficulty: q.difficulty }]);
     }
   };
 
   const handleConfirm = () => {
     const q = questions[currentIdx];
-    if (!q.multiSelect) return;
+    if (selectedAnswers.length === 0) return;
     const isCorrect = arraysEqual(selectedAnswers, q.correctAnswers);
     setShowFeedback(true);
     setResults(r => [...r, { questionId: q.id, selectedAnswers: [...selectedAnswers], correct: isCorrect, domain: q.domain, difficulty: q.difficulty }]);
@@ -236,7 +240,7 @@ export default function App() {
         )}
         {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} />}
         {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
-        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
+        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} onRetryWrong={retryWrongQuestions} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
       </div>
     </div>
@@ -348,7 +352,7 @@ function QuizScreen({question,index,total,selectedAnswers,showFeedback,onSelect,
           </button>
         );
       })}</div>
-      {!showFeedback&&question.multiSelect&&selectedAnswers.length>0&&(
+      {!showFeedback&&selectedAnswers.length>0&&(
         <button onClick={onConfirm} className="w-full mb-4 py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}>確認する <ChevronRight size={18} strokeWidth={3}/></button>
       )}
       {showFeedback&&(
@@ -374,7 +378,7 @@ function QuizScreen({question,index,total,selectedAnswers,showFeedback,onSelect,
   );
 }
 
-function ResultScreen({results,questions,onRestart}) {
+function ResultScreen({results,questions,onRestart,onRetryWrong}) {
   const correct=results.filter(r=>r.correct).length;const total=results.length;const acc=Math.round((correct/total)*100);
   const byDomain=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.domain])m[r.domain]={correct:0,total:0};m[r.domain].total++;if(r.correct)m[r.domain].correct++;});return Object.entries(m).map(([k,v])=>({key:k,...DOMAINS[k],...v,accuracy:Math.round((v.correct/v.total)*100)})).sort((a,b)=>a.accuracy-b.accuracy);},[results]);
   const byDiff=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.difficulty])m[r.difficulty]={correct:0,total:0};m[r.difficulty].total++;if(r.correct)m[r.difficulty].correct++;});return['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],...m[k],accuracy:Math.round((m[k].correct/m[k].total)*100)}));},[results]);
@@ -428,7 +432,8 @@ function ResultScreen({results,questions,onRestart}) {
           <div className="rounded-lg p-2.5 flex gap-2" style={{background:'rgba(255,184,77,0.08)'}}><Lightbulb size={14} style={{color:'#FFB84D'}} className="flex-shrink-0 mt-0.5"/><p className="text-xs text-slate-300 leading-relaxed">{r.q.explanation}</p></div>
         </div>))}</div>
       </details>}
-      <button onClick={onRestart} className="w-full mt-4 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}><RotateCcw size={18} strokeWidth={3}/> もう一度挑戦</button>
+      {wrong.length>0&&<button onClick={()=>onRetryWrong(wrong.map(r=>r.q))} className="w-full mt-4 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'rgba(239,68,68,0.12)',border:'1.5px solid rgba(239,68,68,0.4)',color:'#f87171'}}><X size={18} strokeWidth={3}/> 間違えた{wrong.length}問だけ復習する</button>}
+      <button onClick={onRestart} className="w-full mt-3 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2" style={{background:'linear-gradient(90deg,#FF9900,#FFB84D)',color:'#0a0e1a',boxShadow:'0 8px 24px rgba(255,153,0,0.3)'}}><RotateCcw size={18} strokeWidth={3}/> もう一度挑戦</button>
     </div>
   );
 }
