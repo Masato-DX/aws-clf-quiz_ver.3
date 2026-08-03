@@ -63,6 +63,8 @@ Q(id, 'ドメイン', '難易度', '問題文（複数選択）', ['選択肢0',
 | `aws_clf_history` | 学習セッション履歴 |
 | `aws_clf_seen_questions` | 解いた問題 ID 一覧（未出題優先機能） |
 | `aws_clf_wrong_questions` | 直近で間違えた問題 ID 一覧（苦手問題再挑戦機能。正解すると除外） |
+| `aws_clf_wrong_counts` | 問題 ID ごとの累積間違い回数（正解してもリセットしない。要注意問題の判定に使用） |
+| `aws_clf_last_seen` | 問題 ID ごとの最終出題日時（出題済み問題内での優先順位付けに使用。直近出題ほど後回し） |
 | `aws_clf_sync_config` | Gist 同期設定（PAT・Gist ID） |
 
 ## 開発コマンド
