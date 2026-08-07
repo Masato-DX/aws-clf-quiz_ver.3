@@ -60,6 +60,7 @@ export default function App() {
   const [wrongIds, setWrongIds] = useState(() => new Set(JSON.parse(localStorage.getItem('aws_clf_wrong_questions') || '[]')));
   const [wrongCounts, setWrongCounts] = useState(() => JSON.parse(localStorage.getItem('aws_clf_wrong_counts') || '{}'));
   const [lastSeenMap, setLastSeenMap] = useState(() => JSON.parse(localStorage.getItem('aws_clf_last_seen') || '{}'));
+  const [promotedCount, setPromotedCount] = useState(0);
   const [syncConfig, setSyncConfig] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -224,26 +225,34 @@ export default function App() {
     setSeenIds(newSeenIds);
     localStorage.setItem('aws_clf_seen_questions', JSON.stringify([...newSeenIds]));
 
-    // 3. 間違えた問題IDを記録（正解したら苦手リストから外す）
+    // 3. 今回「昇華」した問題を記録（苦手/要注意だったものを正解した = 克服）
+    const promoted = results.filter(r => r.correct && (wrongIds.has(r.questionId) || wrongCounts[r.questionId] > 0));
+    setPromotedCount(promoted.length);
+
+    // 4. 間違えた問題IDを記録（正解したら苦手リストから外す）
     const newWrongIds = new Set(wrongIds);
     results.forEach(r => { if (r.correct) newWrongIds.delete(r.questionId); else newWrongIds.add(r.questionId); });
     setWrongIds(newWrongIds);
     localStorage.setItem('aws_clf_wrong_questions', JSON.stringify([...newWrongIds]));
 
-    // 4. 間違えた累積回数を記録（正解しても回数はリセットしない。要注意問題の判定に使う）
+    // 5. 間違えた累積回数を記録。正解できたら累積回数もリセットして
+    //    「要注意問題」から卒業させ、一般問題プールへ戻す
     const newWrongCounts = { ...wrongCounts };
-    results.forEach(r => { if (!r.correct) newWrongCounts[r.questionId] = (newWrongCounts[r.questionId] || 0) + 1; });
+    results.forEach(r => {
+      if (r.correct) delete newWrongCounts[r.questionId];
+      else newWrongCounts[r.questionId] = (newWrongCounts[r.questionId] || 0) + 1;
+    });
     setWrongCounts(newWrongCounts);
     localStorage.setItem('aws_clf_wrong_counts', JSON.stringify(newWrongCounts));
 
-    // 5. 最終出題日時を記録（出題済み問題の中での優先順位付けに使う。直近出題したものほど後回しになる）
+    // 6. 最終出題日時を記録（出題済み問題の中での優先順位付けに使う。直近出題したものほど後回しになる）
     const now = Date.now();
     const newLastSeenMap = { ...lastSeenMap };
     results.forEach(r => { newLastSeenMap[r.questionId] = now; });
     setLastSeenMap(newLastSeenMap);
     localStorage.setItem('aws_clf_last_seen', JSON.stringify(newLastSeenMap));
 
-    // 6. Gistへ非同期保存
+    // 7. Gistへ非同期保存
     if (syncConfig) {
       try {
         await saveDataToGist(syncConfig.pat, syncConfig.gistId, { history: nh, seenIds: [...newSeenIds], wrongIds: [...newWrongIds], wrongCounts: newWrongCounts, lastSeen: newLastSeenMap });
@@ -294,7 +303,7 @@ export default function App() {
         )}
         {screen === 'setup' && <SetupScreen config={config} setConfig={setConfig} availableCount={availableCount} unseenCount={unseenCount} startQuiz={startQuiz} historyCount={history.length} onShowHistory={() => setScreen('history')} wrongCount={wrongIds.size} onStartWrongOnly={startWrongOnly} frequentWrongCount={frequentWrongIds.length} onStartFrequentWrong={startFrequentWrong} />}
         {screen === 'quiz' && <QuizScreen question={questions[currentIdx]} index={currentIdx} total={questions.length} selectedAnswers={selectedAnswers} showFeedback={showFeedback} onSelect={handleSelect} onConfirm={handleConfirm} onNext={handleNext} />}
-        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} />}
+        {screen === 'result' && <ResultScreen results={results} questions={questions} onRestart={restart} promotedCount={promotedCount} />}
         {screen === 'history' && <HistoryScreen history={history} onBack={() => setScreen('setup')} onClear={clearHistory} />}
       </div>
     </div>
@@ -453,7 +462,7 @@ function QuizScreen({question,index,total,selectedAnswers,showFeedback,onSelect,
   );
 }
 
-function ResultScreen({results,questions,onRestart}) {
+function ResultScreen({results,questions,onRestart,promotedCount}) {
   const correct=results.filter(r=>r.correct).length;const total=results.length;const acc=Math.round((correct/total)*100);
   const byDomain=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.domain])m[r.domain]={correct:0,total:0};m[r.domain].total++;if(r.correct)m[r.domain].correct++;});return Object.entries(m).map(([k,v])=>({key:k,...DOMAINS[k],...v,accuracy:Math.round((v.correct/v.total)*100)})).sort((a,b)=>a.accuracy-b.accuracy);},[results]);
   const byDiff=useMemo(()=>{const m={};results.forEach(r=>{if(!m[r.difficulty])m[r.difficulty]={correct:0,total:0};m[r.difficulty].total++;if(r.correct)m[r.difficulty].correct++;});return['beginner','intermediate','advanced'].filter(k=>m[k]).map(k=>({key:k,...DIFFICULTIES[k],...m[k],accuracy:Math.round((m[k].correct/m[k].total)*100)}));},[results]);
@@ -469,6 +478,13 @@ function ResultScreen({results,questions,onRestart}) {
         <p className="text-slate-300 text-sm"><span className="mono font-bold text-white">{correct}</span> / <span className="mono">{total}</span> 問正解</p>
         <p className="text-xs text-slate-500 mt-1">CLF-C02 合格ライン: 700/1000 (約70%)</p>
       </div>
+      {promotedCount>0&&<div className="rounded-2xl p-4 mb-4 flex items-center gap-3" style={{background:'rgba(16,185,129,0.1)',border:'1.5px solid rgba(16,185,129,0.4)'}}>
+        <div className="flex items-center justify-center rounded-xl flex-shrink-0" style={{width:44,height:44,background:'rgba(16,185,129,0.15)'}}><Award size={22} style={{color:'#10b981'}}/></div>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-white text-sm">苦手を克服しました！</div>
+          <div className="text-xs text-slate-400 mt-0.5">以前間違えた <span className="mono font-bold" style={{color:'#10b981'}}>{promotedCount}</span> 問に正解し、通常の問題プールに戻りました</div>
+        </div>
+      </div>}
       <div className="rounded-2xl p-5 mb-4" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)'}}>
         <div className="flex items-center gap-2 mb-4"><BookOpen size={16} style={{color:'#60a5fa'}}/><h2 className="text-sm font-bold tracking-wider text-slate-300 uppercase">領域別の正答率</h2></div>
         <div className="space-y-3">{byDomain.map(d=>{const Icon=d.icon;return(<div key={d.key}><div className="flex items-center justify-between mb-1.5"><div className="flex items-center gap-2 min-w-0"><Icon size={14} style={{color:d.color}}/><span className="text-sm font-medium text-white truncate">{d.short}</span></div><div className="mono text-sm flex items-center gap-2 flex-shrink-0"><span className="text-slate-400">{d.correct}/{d.total}</span><span className="font-bold" style={{color:d.color}}>{d.accuracy}%</span></div></div><div className="h-2 bg-white/5 rounded-full overflow-hidden"><div className="h-full" style={{width:`${d.accuracy}%`,background:d.color}}/></div></div>);})}</div>
