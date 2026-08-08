@@ -69,6 +69,15 @@ describe('問題データの構造', () => {
     });
   });
 
+  it('日本語以外の文字体系（キリル・ハングル等）が混入していない', () => {
+    const stray = /[Ѐ-ӿ가-힯฀-๿؀-ۿ]/;
+    QUESTIONS.forEach(q => {
+      [q.question, q.explanation, ...q.options].forEach(text => {
+        expect(stray.test(text), `${label(q)} に日本語以外の文字が混入: ${text}`).toBe(false);
+      });
+    });
+  });
+
   it('解説が十分な長さで記述されている（要件 QD-4）', () => {
     QUESTIONS.forEach(q => {
       expect(len(q.explanation), `${label(q)} の解説が短すぎる`).toBeGreaterThanOrEqual(40);
